@@ -1,7 +1,7 @@
 # Design Document: `juuudge` - Magic: The Gathering Rules AI Agent CLI
 
 **Date:** 2026-09-04  
-**Status:** Approved (v1 Scoped)  
+**Status:** Approved (v1 Scoped + Bounded Tool Loop & Hierarchical Expansion)  
 **Author:** Antigravity & User  
 
 ---
@@ -10,12 +10,13 @@
 
 `juuudge` is a high-performance terminal CLI and interactive TUI (Terminal User Interface) AI assistant specialized in adjudicating Magic: The Gathering (MTG) rules, interactions, priority timing, and layer system mechanics.
 
-### Primary Objectives (v1 Scope)
-1. **Accurate & Authoritative MTG Rules Grounding:** Prevent AI hallucinations by grounding all answers with official WotC Comprehensive Rules (CR) text, Scryfall Oracle card texts, and Gatherer rulings.
-2. **Fast & Intuitive 3-Pane Textual TUI:** Deliver a split-pane interface showing the chat verdict, active card oracle/rulings, and cited comprehensive rules side-by-side with a single clean, modern dark theme.
-3. **Rich Web References:** Automatically embed clickable links to Scryfall for card lookups and official online rules resources (e.g. Yawgatog / WotC anchors) for rule verification.
-4. **Offline-Capable Local RAG Engine:** Cache Scryfall bulk cards and WotC Comprehensive Rules locally in SQLite with FTS5 lexical indexing and local CPU embeddings (`fastembed`).
-5. **Clean Extensible LLM Interface:** A clean `LLMProvider` abstraction supporting Anthropic Claude (`claude-3-7-sonnet` / `claude-3-5-haiku`) as the primary cloud provider and local `Ollama` for offline generation, designed for straightforward future additions.
+### Primary Objectives
+1. **Accurate & Authoritative MTG Rules Grounding:** Eliminate AI hallucinations by grounding all answers with official WotC Comprehensive Rules (CR) text, Scryfall Oracle card texts, and Gatherer rulings.
+2. **Hierarchical Context Expansion & Direct Rule-ID Bypass:** Exact rule IDs (e.g., `613.1d`, `704.5s`) bypass vector search via $O(1)$ direct index lookup. Rule hits automatically expand to include parent section intros and sibling rules (essential for Layer, Dependency, and Timestamp interactions).
+3. **Bounded Agentic Judge Loop:** A bounded multi-turn agent loop (capped at max 2–3 rounds) where the LLM can call local tools (`lookup_card`, `lookup_rule`, `lookup_glossary`, `search_rules`) to pull missing context before delivering the final verdict.
+4. **Fast & Intuitive 3-Pane Textual TUI:** A responsive split-pane interface showing the chat verdict, active card oracle/rulings, and cited comprehensive rules side-by-side with a single clean dark theme.
+5. **Rich Web References:** Automatically embed clickable links to Scryfall for card lookups and official online rules resources (e.g. Yawgatog / WotC anchors) for rule verification.
+6. **Clean Extensible LLM Interface:** Abstract `LLMProvider` supporting Anthropic Claude (`claude-3-7-sonnet` / `claude-3-5-haiku`) as the primary cloud provider and local `Ollama` for offline generation.
 
 ---
 
@@ -62,32 +63,58 @@ Rather than naive token-window splitting, `juuudge` parses the CR along its natu
 * **Section Records:** Macro-sections (e.g. `613. Interaction of Continuous Effects`) for high-level conceptual matching.
 * **Glossary Records:** Dedicated entries for ~400 defined terms (*"Active Player"*, *"Priority"*, *"Replacement Effect"*, *"State-Based Action"*).
 
+### 2.3 Direct Rule-ID Bypass & Hierarchical Expansion
+1. **Direct Rule-ID Fast-Path ($O(1)$ Bypass):**
+   * Regex extraction identifies literal rule patterns (e.g. `\b\d{3}\.\d+[a-z]?\b` such as `613.1d`, `704.5s`, `101.4`).
+   * Fetches exact records directly by primary key, completely bypassing BM25 and vector embeddings to prevent known semantic failure modes on numeric citations.
+2. **Hierarchical Context Expansion:**
+   * When a specific sub-rule hits (e.g. `613.1d` - Layer 4 Type Change):
+     - Automatically expands to include the **section header & intro** (`613. Interaction of Continuous Effects`).
+     - Includes the **parent rule** (`613.1`).
+     - Includes **sibling rules** (e.g. `613.1a` through `613.1g` for all layers, `613.7` timestamps, `613.8` dependencies).
+   * Ensures the LLM has complete layer/dependency context without exhausting `top_k` with incomplete fragments.
+
 ---
 
-## 3. Query Processing & Hybrid RAG Engine
+## 3. Query Processing & Bounded Tool-Using Judge Loop
 
-```
-User Query: "Does Blood Moon kill Urza's Saga?"
-    │
-    ├──► 1. Card Name Extractor
-    │    ├── Explicit syntax: `[[Card Name]]`
-    │    ├── Exact & Prefix name matching against SQLite index
-    │    ├── Fuzzy matching (Trigram / Levenshtein) for typos and partial names
-    │    └── Output: [Blood Moon], [Urza's Saga] -> Emit CardEvent to TUI Card Pane
-    │
-    ├──► 2. Hybrid Rules Retriever
-    │    ├── Lexical BM25 (SQLite FTS5) on rules and glossary
-    │    ├── Semantic Dense Vector Search via `fastembed` (bge-small-en-v1.5)
-    │    ├── Reciprocal Rank Fusion (RRF) deduplication
-    │    └── Output: Top-K CR Rules (e.g. CR 613.1d, CR 704.5s) -> Emit RuleEvent to TUI Rule Pane
-    │
-    └──► 3. Prompt Assembler & LLM Engine
-         ├── Persona: Certified Level 2/3 MTG Judge
-         ├── Grounding: Injected Oracle Texts, Card Rulings, and CR Rule Chunks
-         └── Output: Structured Verdict streamed to TUI Chat Pane with Markdown Links
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User
+    participant Extractor as Card & Rule ID Extractor
+    participant Retriever as Hybrid Retriever + Context Expander
+    participant Judge as Judge Agent Loop (Max 2-3 Rounds)
+    participant LocalDB as Local SQLite Tools
+    participant TUI as Textual TUI Panes
+
+    User->>Extractor: "Does Blood Moon kill Urza's Saga?"
+    Extractor->>TUI: Emit CardEvents & RuleEvents (Immediate UI update)
+    Extractor->>Retriever: Rule IDs (Direct Bypass) + Query (Hybrid Search)
+    Retriever->>Retriever: Expand Hierarchical Context (Parent + Siblings)
+    Retriever->>Judge: Initial Grounded Prompt (Cards + Expanded Rules)
+    
+    loop Bounded Tool Loop (Max 2-3 Rounds)
+        Judge->>Judge: Reason / Inspect Context
+        opt Missing Card / Sub-rule / Glossary Term
+            Judge->>LocalDB: Call Tool (e.g., lookup_glossary("Saga") or lookup_rule("704.5s"))
+            LocalDB-->>Judge: Return Exact Record
+        end
+    end
+
+    Judge-->>TUI: Final Streaming Verdict with Citations & Links
 ```
 
-### 3.1 Verdict Output Format
+### 3.1 Local Tool Definitions for Judge Loop
+The agent is provided with local deterministic tools to fetch missing context if needed during reasoning:
+* `lookup_card(name: str)`: Returns exact Oracle text, type line, mana cost, and Gatherer rulings.
+* `lookup_rule(rule_id: str, expand: bool = True)`: Returns exact rule text + hierarchical parent/sibling expansion.
+* `lookup_glossary(term: str)`: Returns official CR definition for a game term.
+* `search_rules(query: str, limit: int = 3)`: Fast FTS5 search across the Comprehensive Rules.
+
+*Safety Constraint:* Loop is strictly capped at **3 rounds maximum** to ensure low latency and prevent infinite loops.
+
+### 3.2 Verdict Output Format
 1. **Verdict (TL;DR):** Immediate direct ruling.
 2. **Step-by-Step Breakdown:** Ordered mechanics resolution (Layers $\to$ Priority $\to$ Triggers $\to$ SBAs).
 3. **Official Links & Citations:**
@@ -146,16 +173,21 @@ User Query: "Does Blood Moon kill Urza's Saga?"
 ```python
 class LLMProvider(ABC):
     @abstractmethod
-    async def stream_completion(self, messages: list[dict], system_prompt: str) -> AsyncIterator[str]:
-        """Stream response tokens from the model."""
+    async def stream_completion(
+        self,
+        messages: list[dict],
+        system_prompt: str,
+        tools: list[dict] | None = None
+    ) -> AsyncIterator[LLMChunk]:
+        """Stream response tokens and handle tool calls."""
         pass
 
 class AnthropicProvider(LLMProvider):
-    """Primary cloud provider using Anthropic Claude SDK / API."""
+    """Primary cloud provider using Anthropic Claude SDK with tool-use support."""
     pass
 
 class OllamaProvider(LLMProvider):
-    """Local offline provider using Ollama API."""
+    """Local offline provider using Ollama API with tool-use support."""
     pass
 ```
 
@@ -167,10 +199,12 @@ model = "claude-3-7-sonnet"
 api_key = "" # Automatically loaded from ANTHROPIC_API_KEY environment variable
 temperature = 0.0
 ollama_host = "http://localhost:11434"
+max_tool_rounds = 3
 
 [rag]
 top_k_rules = 5
 top_k_glossary = 2
+expand_hierarchical_rules = true
 embedder = "fastembed"
 ```
 
@@ -183,9 +217,11 @@ embedder = "fastembed"
 
 ## 6. Testing & Quality Strategy
 * **Unit Tests (`pytest`):**
-  * CR hierarchical parser correctness (chapter, section, sub-rule, and example grouping).
+  * Direct Rule-ID regex extractor & $O(1)$ fast-path lookup.
+  * Hierarchical CR parser & context expander (parent section + sibling rules).
   * Card extractor regex and fuzzy matcher accuracy.
   * SQLite FTS5 search and RRF ranking algorithms.
+  * Bounded tool loop termination and tool execution accuracy.
 * **Judge Verification Test Suite:**
   * Canonical MTG rules scenarios:
     - Blood Moon + Urza's Saga (Layer 4 / SBA 704.5s)
