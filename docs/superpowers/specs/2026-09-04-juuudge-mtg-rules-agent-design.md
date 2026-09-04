@@ -1,7 +1,7 @@
 # Design Document: `juuudge` - Magic: The Gathering Rules AI Agent CLI
 
 **Date:** 2026-09-04  
-**Status:** Approved  
+**Status:** Approved (v1 Scoped)  
 **Author:** Antigravity & User  
 
 ---
@@ -10,12 +10,12 @@
 
 `juuudge` is a high-performance terminal CLI and interactive TUI (Terminal User Interface) AI assistant specialized in adjudicating Magic: The Gathering (MTG) rules, interactions, priority timing, and layer system mechanics.
 
-### Primary Objectives
+### Primary Objectives (v1 Scope)
 1. **Accurate & Authoritative MTG Rules Grounding:** Prevent AI hallucinations by grounding all answers with official WotC Comprehensive Rules (CR) text, Scryfall Oracle card texts, and Gatherer rulings.
-2. **Fast & Intuitive 3-Pane Textual TUI:** Deliver a split-pane interface showing the chat verdict, active card oracle/rulings, and cited comprehensive rules side-by-side.
+2. **Fast & Intuitive 3-Pane Textual TUI:** Deliver a split-pane interface showing the chat verdict, active card oracle/rulings, and cited comprehensive rules side-by-side with a single clean, modern dark theme.
 3. **Rich Web References:** Automatically embed clickable links to Scryfall for card lookups and official online rules resources (e.g. Yawgatog / WotC anchors) for rule verification.
 4. **Offline-Capable Local RAG Engine:** Cache Scryfall bulk cards and WotC Comprehensive Rules locally in SQLite with FTS5 lexical indexing and local CPU embeddings (`fastembed`).
-5. **Multi-Model Support:** Native integration with Anthropic Claude (`claude-3-7-sonnet`, `claude-3-5-haiku`), Google Gemini, OpenAI, and local Ollama models. Default configured for Anthropic API key during development.
+5. **Clean Extensible LLM Interface:** A clean `LLMProvider` abstraction supporting Anthropic Claude (`claude-3-7-sonnet` / `claude-3-5-haiku`) as the primary cloud provider and local `Ollama` for offline generation, designed for straightforward future additions.
 
 ---
 
@@ -70,9 +70,9 @@ Rather than naive token-window splitting, `juuudge` parses the CR along its natu
 User Query: "Does Blood Moon kill Urza's Saga?"
     │
     ├──► 1. Card Name Extractor
-    │    ├── Regex & `[[Card Name]]` syntax
-    │    ├── Trigram / Levenshtein fuzzy matching ("bowmasters" -> "Orcish Bowmasters")
-    │    ├── Community slang mapping ("Bob" -> "Dark Confidant", "Swat" -> "Deflecting Swat")
+    │    ├── Explicit syntax: `[[Card Name]]`
+    │    ├── Exact & Prefix name matching against SQLite index
+    │    ├── Fuzzy matching (Trigram / Levenshtein) for typos and partial names
     │    └── Output: [Blood Moon], [Urza's Saga] -> Emit CardEvent to TUI Card Pane
     │
     ├──► 2. Hybrid Rules Retriever
@@ -98,7 +98,7 @@ User Query: "Does Blood Moon kill Urza's Saga?"
 
 ## 4. User Interface & Experience (Textual TUI & CLI)
 
-### 4.1 3-Pane Responsive Layout
+### 4.1 3-Pane Responsive Layout (Dark Theme)
 ```
 +-----------------------------------------------------------------------------+
 | JUUUDGE - MTG Rules Judge CLI                           [claude-3-7-sonnet] |
@@ -140,18 +140,33 @@ User Query: "Does Blood Moon kill Urza's Saga?"
 
 ---
 
-## 5. Configuration & Multi-Provider Support
+## 5. Configuration & LLM Provider Architecture
 
-### 5.1 Configuration File (`~/.juuudge/config.toml`)
+### 5.1 Extensible Provider Architecture
+```python
+class LLMProvider(ABC):
+    @abstractmethod
+    async def stream_completion(self, messages: list[dict], system_prompt: str) -> AsyncIterator[str]:
+        """Stream response tokens from the model."""
+        pass
+
+class AnthropicProvider(LLMProvider):
+    """Primary cloud provider using Anthropic Claude SDK / API."""
+    pass
+
+class OllamaProvider(LLMProvider):
+    """Local offline provider using Ollama API."""
+    pass
+```
+
+### 5.2 Configuration File (`~/.juuudge/config.toml`)
 ```toml
-[general]
-theme = "dark" # "dracula", "nord", "gruvbox", "monokai"
-
 [llm]
-provider = "anthropic" # "anthropic", "gemini", "openai", "ollama"
+provider = "anthropic" # "anthropic" or "ollama"
 model = "claude-3-7-sonnet"
-api_key = "" # Automatically loads from ANTHROPIC_API_KEY environment variable
+api_key = "" # Automatically loaded from ANTHROPIC_API_KEY environment variable
 temperature = 0.0
+ollama_host = "http://localhost:11434"
 
 [rag]
 top_k_rules = 5
@@ -159,7 +174,7 @@ top_k_glossary = 2
 embedder = "fastembed"
 ```
 
-### 5.2 Error Handling & First-Run Experience
+### 5.3 Error Handling & First-Run Experience
 * **Auto-Sync Prompt:** If run with an unpopulated database, `juuudge` shows an onboarding progress bar to sync Scryfall and CR data before proceeding.
 * **Graceful Degradation:** If offline and no local Ollama model is active, `juuudge card` and `juuudge rule` remain 100% operational as an instant offline MTG reference manual.
 * **Disambiguation Modal:** If a card name matches multiple candidates ambiguously, an interactive selector lets the user pick the intended card.
@@ -169,10 +184,10 @@ embedder = "fastembed"
 ## 6. Testing & Quality Strategy
 * **Unit Tests (`pytest`):**
   * CR hierarchical parser correctness (chapter, section, sub-rule, and example grouping).
-  * Card extractor regex, fuzzy matcher, and slang dictionary accuracy.
+  * Card extractor regex and fuzzy matcher accuracy.
   * SQLite FTS5 search and RRF ranking algorithms.
 * **Judge Verification Test Suite:**
-  * 30+ canonical MTG rules edge-case scenarios:
+  * Canonical MTG rules scenarios:
     - Blood Moon + Urza's Saga (Layer 4 / SBA 704.5s)
     - Humility + Opalescence (Layer 6/7b dependency & timestamp loops)
     - Deflecting Swat targeting Counterspell (Legal spell target switching)
