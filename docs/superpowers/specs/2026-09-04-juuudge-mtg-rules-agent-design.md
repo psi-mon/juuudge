@@ -1,7 +1,7 @@
 # Design Document: `juuudge` - Magic: The Gathering Rules AI Agent CLI
 
 **Date:** 2026-09-04  
-**Status:** Approved (v1 Scoped + Bounded Tool Loop & Hierarchical Expansion)  
+**Status:** Approved (v1 Scoped + Bounded Tool Loop, Hierarchical Expansion & Embedded LanceDB)  
 **Author:** Antigravity & User  
 
 ---
@@ -16,7 +16,7 @@
 3. **Bounded Agentic Judge Loop:** A bounded multi-turn agent loop (capped at max 2–3 rounds) where the LLM can call local tools (`lookup_card`, `lookup_rule`, `lookup_glossary`, `search_rules`) to pull missing context before delivering the final verdict.
 4. **Fast & Intuitive 3-Pane Textual TUI:** A responsive split-pane interface showing the chat verdict, active card oracle/rulings, and cited comprehensive rules side-by-side with a single clean dark theme.
 5. **Rich Web References:** Automatically embed clickable links to Scryfall for card lookups and official online rules resources (e.g. Yawgatog / WotC anchors) for rule verification.
-6. **Clean Extensible LLM Interface:** Abstract `LLMProvider` supporting Anthropic Claude (`claude-3-7-sonnet` / `claude-3-5-haiku`) as the primary cloud provider and local `Ollama` for offline generation.
+6. **Embedded Storage & Extensible LLM Interface:** SQLite (FTS5 lexical search & fast-path metadata) + embedded **LanceDB** (zero-friction, serverless local vector storage for dense RAG) + abstract `LLMProvider` supporting Anthropic Claude and local Ollama.
 
 ---
 
@@ -41,19 +41,19 @@
 |         │                        │ & Glossary   │     │ Embedder     │      |
 |         │                        └──────┬───────┘     └──────┬───────┘      |
 |         ▼                               ▼                    ▼              |
-|  ╔═══════════════════════════════════════════════════════════════════════╗  |
-|  ║              Local Storage SQLite DB (~/.juuudge/juuudge.db)          ║  |
-|  ║  • cards & cards_fts (Oracle, Mana, Types, Rulings, Scryfall URIs)    ║  |
-|  ║  • rules & rules_fts (Chapter, Section, Rule ID, Text, Examples)      ║  |
-|  ║  • glossary & glossary_fts (MTG Legal Definitions)                    ║  |
-|  ║  • vector_index (Dense embeddings for semantic rule retrieval)        ║  |
-|  ╚═══════════════════════════════════════════════════════════════════════╝  |
+|  ╔═══════════════════════════════════════════════╗    ╔══════════════════╗  |
+|  ║        SQLite Storage (~/.juuudge/juuudge.db) ║    ║ Embedded LanceDB ║  |
+|  ║  • cards & cards_fts (Oracle, Types, Rulings) ║    ║ (~/.juuudge/vec) ║  |
+|  ║  • rules & rules_fts (Rule ID, Text, Examples)║    ║ • cr_rules_vec   ║  |
+|  ║  • glossary & glossary_fts (Definitions)      ║    ║ • glossary_vec   ║  |
+|  ╚═══════════════════════════════════════════════╝    ╚══════════════════╝  |
 +-----------------------------------------------------------------------------+
 ```
 
 ### 2.1 Storage Layout
 * Directory: `~/.juuudge/` (or `$XDG_DATA_HOME/juuudge/`)
-  * `juuudge.db`: SQLite database holding cards, rulings, rules, glossary, and vector tables.
+  * `juuudge.db`: SQLite database holding cards, rulings, rules, and glossary tables with FTS5.
+  * `lancedb/`: Embedded LanceDB directory holding vector tables (`cr_rules_vec`, `glossary_vec`).
   * `config.toml`: User configuration.
   * `cache/`: Downloaded raw Scryfall bulk JSON and `MagicCompRules.txt` with checksum tracking.
 
@@ -66,7 +66,7 @@ Rather than naive token-window splitting, `juuudge` parses the CR along its natu
 ### 2.3 Direct Rule-ID Bypass & Hierarchical Expansion
 1. **Direct Rule-ID Fast-Path ($O(1)$ Bypass):**
    * Regex extraction identifies literal rule patterns (e.g. `\b\d{3}\.\d+[a-z]?\b` such as `613.1d`, `704.5s`, `101.4`).
-   * Fetches exact records directly by primary key, completely bypassing BM25 and vector embeddings to prevent known semantic failure modes on numeric citations.
+   * Fetches exact records directly from SQLite primary key index, completely bypassing BM25 and vector embeddings to prevent known semantic failure modes on numeric citations.
 2. **Hierarchical Context Expansion:**
    * When a specific sub-rule hits (e.g. `613.1d` - Layer 4 Type Change):
      - Automatically expands to include the **section header & intro** (`613. Interaction of Continuous Effects`).
@@ -85,7 +85,7 @@ sequenceDiagram
     participant Extractor as Card & Rule ID Extractor
     participant Retriever as Hybrid Retriever + Context Expander
     participant Judge as Judge Agent Loop (Max 2-3 Rounds)
-    participant LocalDB as Local SQLite Tools
+    participant LocalDB as Local SQLite & LanceDB Tools
     participant TUI as Textual TUI Panes
 
     User->>Extractor: "Does Blood Moon kill Urza's Saga?"
@@ -110,7 +110,7 @@ The agent is provided with local deterministic tools to fetch missing context if
 * `lookup_card(name: str)`: Returns exact Oracle text, type line, mana cost, and Gatherer rulings.
 * `lookup_rule(rule_id: str, expand: bool = True)`: Returns exact rule text + hierarchical parent/sibling expansion.
 * `lookup_glossary(term: str)`: Returns official CR definition for a game term.
-* `search_rules(query: str, limit: int = 3)`: Fast FTS5 search across the Comprehensive Rules.
+* `search_rules(query: str, limit: int = 3)`: Fast FTS5 and LanceDB hybrid search across the Comprehensive Rules.
 
 *Safety Constraint:* Loop is strictly capped at **3 rounds maximum** to ensure low latency and prevent infinite loops.
 
@@ -220,7 +220,7 @@ embedder = "fastembed"
   * Direct Rule-ID regex extractor & $O(1)$ fast-path lookup.
   * Hierarchical CR parser & context expander (parent section + sibling rules).
   * Card extractor regex and fuzzy matcher accuracy.
-  * SQLite FTS5 search and RRF ranking algorithms.
+  * SQLite FTS5 search + embedded LanceDB ANN vector retrieval.
   * Bounded tool loop termination and tool execution accuracy.
 * **Judge Verification Test Suite:**
   * Canonical MTG rules scenarios:
