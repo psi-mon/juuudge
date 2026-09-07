@@ -328,10 +328,14 @@ def test_cards_insert_and_lookup(test_db):
     assert saga is not None
     assert "Urza's Saga" in saga.type_line
 
-    # Card search
-    results = test_db.search_cards("Swat")
+    # Card search with punctuation/apostrophe safety
+    results = test_db.search_cards("Urza's")
     assert len(results) >= 1
-    assert results[0].name == "Deflecting Swat"
+    assert results[0].name == "Urza's Saga"
+
+    results_swat = test_db.search_cards("Swat")
+    assert len(results_swat) >= 1
+    assert results_swat[0].name == "Deflecting Swat"
 
 def test_rules_insert_exact_and_fts(test_db):
     rules = [
@@ -349,7 +353,21 @@ def test_rules_insert_exact_and_fts(test_db):
     # FTS5 Match
     fts_results = test_db.search_rules_fts("continuous effects layers")
     assert len(fts_results) >= 1
-    assert any(x.rule_id == "613.1" for x in fts_results)
+
+def test_glossary_insert_and_lookup(test_db):
+    terms = [
+        GlossaryTerm(term="Priority", definition="A player who has priority may cast spells..."),
+        GlossaryTerm(term="Continuous Effect", definition="An effect that modifies characteristics over time.")
+    ]
+    test_db.insert_glossary(terms)
+
+    g = test_db.get_glossary_term("Priority")
+    assert g is not None
+    assert "cast spells" in g.definition
+
+    fts_g = test_db.search_glossary_fts("modifies characteristics")
+    assert len(fts_g) >= 1
+    assert fts_g[0].term == "Continuous Effect"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -374,7 +392,7 @@ class Database:
 
     def get_connection(self) -> sqlite3.Connection:
         if self._conn is None:
-            self._conn = sqlite3.connect(str(self.db_path))
+            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             self._conn.row_factory = sqlite3.Row
         return self._conn
 
@@ -503,13 +521,16 @@ class Database:
 
     def search_cards(self, query: str, limit: int = 5) -> List[Card]:
         conn = self.get_connection()
+        clean_query = "".join(c if c.isalnum() or c.isspace() else " " for c in query).strip()
+        if not clean_query:
+            return []
         cur = conn.execute("""
             SELECT c.* FROM cards c
             JOIN cards_fts f ON c.rowid = f.rowid
             WHERE cards_fts MATCH ?
             ORDER BY bm25(cards_fts)
             LIMIT ?
-        """, (f'"{query}"*', limit))
+        """, (f'"{clean_query}"*', limit))
         results = []
         for row in cur.fetchall():
             results.append(Card(
@@ -687,7 +708,8 @@ SAMPLE_SCRYFALL_CARDS = [
         "oracle_text": "Nonbasic lands are Mountains.",
         "keywords": [],
         "scryfall_uri": "https://scryfall.com/card/2xm/118/blood-moon",
-        "id": "card-bm-1"
+        "id": "printing-bm-1",
+        "oracle_id": "oracle-bm-1"
     },
     {
         "name": "Urza's Saga",
@@ -696,13 +718,14 @@ SAMPLE_SCRYFALL_CARDS = [
         "oracle_text": "I, II, III chapters...",
         "keywords": ["Saga"],
         "scryfall_uri": "https://scryfall.com/card/mh2/259/urzas-saga",
-        "id": "card-us-2"
+        "id": "printing-us-2",
+        "oracle_id": "oracle-us-2"
     }
 ]
 
 SAMPLE_SCRYFALL_RULINGS = [
     {
-        "oracle_id": "card-bm-1",
+        "oracle_id": "oracle-bm-1",
         "published_at": "2020-08-07",
         "comment": "Nonbasic lands lose all other abilities."
     }
@@ -712,6 +735,10 @@ def test_cr_parser():
     rules, glossary = parse_comprehensive_rules(SAMPLE_CR_TEXT)
     assert len(rules) >= 4
     assert len(glossary) == 2
+
+    # Verify section header rule 613
+    r613 = next(r for r in rules if r.rule_id == "613")
+    assert "Interaction of Continuous Effects" in r613.text
 
     # Verify rule 613.1d
     r613_1d = next(r for r in rules if r.rule_id == "613.1d")
@@ -800,8 +827,21 @@ def parse_comprehensive_rules(text: str) -> Tuple[List[Rule], List[GlossaryTerm]
         # Section header (e.g. "613. Interaction of Continuous Effects")
         sec_match = SECTION_HEADER_PATTERN.match(raw_line)
         if sec_match:
+            if current_rule:
+                rules.append(current_rule)
+                current_rule = None
             current_section = raw_line
             current_parent_rule = sec_match.group(1)
+            # Create a Rule record for the section header
+            chap_num = current_chapter.split(".")[0].strip() if current_chapter else ""
+            rules.append(Rule(
+                rule_id=sec_match.group(1),
+                chapter=current_chapter or "Rules",
+                section=raw_line,
+                parent_rule=chap_num,
+                text=sec_match.group(2),
+                examples=[]
+            ))
             continue
 
         # Examples (e.g. "Example: Blood Moon makes nonbasic lands Mountains.")
@@ -857,7 +897,7 @@ from typing import List, Dict, Any
 from juuudge.models import Card
 
 def parse_scryfall_cards(cards_data: List[Dict[str, Any]], rulings_data: List[Dict[str, Any]] | None = None) -> List[Card]:
-    # Index rulings by card name or oracle_id
+    # Index rulings by oracle_id or card id
     rulings_by_id: Dict[str, List[Dict[str, str]]] = {}
     if rulings_data:
         for r in rulings_data:
@@ -900,7 +940,7 @@ def parse_scryfall_cards(cards_data: List[Dict[str, Any]], rulings_data: List[Di
                 face_texts.append(f"[{face_name} - {face_type}]\n{face_oracle}")
             oracle_text = "\n//\n".join(face_texts)
 
-        c_id = item.get("id") or item.get("oracle_id") or ""
+        c_id = item.get("oracle_id") or item.get("id") or ""
         card_rulings = rulings_by_id.get(c_id, [])
 
         cards.append(Card(
@@ -1180,6 +1220,13 @@ from juuudge.models import Card
 
 BRACKET_PATTERN = re.compile(r'\[\[(.*?)\]\]')
 
+# Common English words that are also MTG card names to avoid false positive matches in natural sentences
+COMMON_STOPWORDS = {
+    "turn", "kill", "down", "life", "deal", "play", "draw", "land", 
+    "pass", "target", "hand", "spell", "hero", "cost", "type", 
+    "fast", "slow", "time", "game", "deck", "side", "rule", "card"
+}
+
 class CardExtractor:
     def __init__(self, db: Database):
         self.db = db
@@ -1187,14 +1234,16 @@ class CardExtractor:
 
     def _get_all_names(self) -> List[str]:
         if self._all_names is None:
-            self._all_names = self.db.get_all_card_names()
+            # Sort by length descending so longer specific card names match before substrings
+            names = self.db.get_all_card_names()
+            self._all_names = sorted(names, key=len, reverse=True)
         return self._all_names
 
     def extract(self, text: str) -> List[Card]:
         found_cards: List[Card] = []
         found_names: Set[str] = set()
 
-        # 1. Bracket syntax [[Card Name]]
+        # 1. Highest Priority: Bracket syntax [[Card Name]]
         bracket_matches = BRACKET_PATTERN.findall(text)
         for match in bracket_matches:
             c = self.db.get_card_by_name(match.strip())
@@ -1202,11 +1251,17 @@ class CardExtractor:
                 found_cards.append(c)
                 found_names.add(c.name)
 
-        # 2. Exact / Substring scan against known card names
+        # 2. Word Boundary Regex Scan against known card names
         all_names = self._get_all_names()
-        text_lower = text.lower()
         for name in all_names:
-            if len(name) >= 4 and name.lower() in text_lower:
+            if name.lower() in COMMON_STOPWORDS and len(name) <= 5:
+                continue
+            if len(name) < 3:
+                continue
+
+            # Check exact whole-word boundary
+            pattern = re.compile(rf'\b{re.escape(name)}\b', re.IGNORECASE)
+            if pattern.search(text):
                 if name not in found_names:
                     c = self.db.get_card_by_name(name)
                     if c:
@@ -1219,7 +1274,7 @@ class CardExtractor:
                 text, all_names, scorer=fuzz.partial_ratio, limit=2, score_cutoff=85
             )
             for match_name, score, _ in fuzzy_matches:
-                if match_name not in found_names:
+                if match_name not in found_names and match_name.lower() not in COMMON_STOPWORDS:
                     c = self.db.get_card_by_name(match_name)
                     if c:
                         found_cards.append(c)
@@ -1264,7 +1319,7 @@ class RuleRetriever:
                 seen_rule_ids.add(rule.rule_id)
 
                 if self.expand_hierarchical:
-                    # Expand parent & siblings
+                    # Full expansion for direct Rule-ID lookups
                     parent_rule = rule.parent_rule
                     siblings = self.db.get_sibling_rules(parent_rule)
                     for sib in siblings:
@@ -1279,7 +1334,8 @@ class RuleRetriever:
                 matched_rules.append(r)
                 seen_rule_ids.add(r.rule_id)
                 if self.expand_hierarchical:
-                    for sib in self.db.get_sibling_rules(r.parent_rule):
+                    # Bounded expansion (top 3 siblings) on broad FTS search
+                    for sib in self.db.get_sibling_rules(r.parent_rule)[:3]:
                         if sib.rule_id not in seen_rule_ids:
                             matched_rules.append(sib)
                             seen_rule_ids.add(sib.rule_id)
@@ -1488,7 +1544,28 @@ class OllamaProvider(LLMProvider):
         system_prompt: str,
         tools: List[Dict[str, Any]] | None = None
     ) -> AsyncIterator[LLMChunk]:
-        formatted_messages = [{"role": "system", "content": system_prompt}] + messages
+        formatted_messages = [{"role": "system", "content": system_prompt}]
+        for m in messages:
+            role = m.get("role")
+            content = m.get("content")
+            if isinstance(content, list):
+                parts = []
+                for block in content:
+                    if isinstance(block, dict):
+                        if block.get("type") == "text":
+                            parts.append(block.get("text", ""))
+                        elif block.get("type") == "tool_use":
+                            parts.append(f"[Tool Call: {block.get('name')}({json.dumps(block.get('input', {}))})]")
+                        elif block.get("type") == "tool_result":
+                            parts.append(f"[Tool Result for {block.get('tool_use_id')}]:\n{block.get('content')}")
+                        else:
+                            parts.append(str(block))
+                    else:
+                        parts.append(str(block))
+                formatted_messages.append({"role": role, "content": "\n".join(parts)})
+            else:
+                formatted_messages.append({"role": role, "content": content or ""})
+
         payload: Dict[str, Any] = {
             "model": self.model,
             "messages": formatted_messages,
@@ -1836,21 +1913,27 @@ class JudgeAgent:
                 break
 
             # Execute tool calls
+            tool_use_blocks = []
+            tool_result_blocks = []
             for tc in tool_calls_to_execute:
                 yield {"type": "tool_call_start", "name": tc.name, "args": tc.arguments}
                 tool_result = execute_tool(tc.name, tc.arguments, self.db, self.vec_store)
                 yield {"type": "tool_call_result", "name": tc.name, "result": tool_result}
 
-                messages.append({
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [{"id": tc.tool_id, "type": "function", "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)}}]
+                tool_use_blocks.append({
+                    "type": "tool_use",
+                    "id": tc.tool_id,
+                    "name": tc.name,
+                    "input": tc.arguments
                 })
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc.tool_id,
+                tool_result_blocks.append({
+                    "type": "tool_result",
+                    "tool_use_id": tc.tool_id,
                     "content": tool_result
                 })
+
+            messages.append({"role": "assistant", "content": tool_use_blocks})
+            messages.append({"role": "user", "content": tool_result_blocks})
 
         yield {"type": "done"}
 ```
@@ -1953,7 +2036,11 @@ WOTC_CR_URL = "https://media.wizards.com/2024/downloads/MagicCompRules.txt"
 SCRYFALL_BULK_API = "https://api.scryfall.com/bulk-data"
 
 async def download_file(url: str, on_progress: Optional[Callable[[str], None]] = None) -> bytes:
-    async with httpx.AsyncClient(timeout=180.0, follow_redirects=True) as client:
+    headers = {
+        "User-Agent": "juuudge/0.1.0 (https://github.com/psi-mon/juuudge)",
+        "Accept": "application/json, text/plain, */*"
+    }
+    async with httpx.AsyncClient(timeout=180.0, follow_redirects=True, headers=headers) as client:
         resp = await client.get(url)
         resp.raise_for_status()
         return resp.content
@@ -1969,6 +2056,7 @@ async def sync_all_data(
     if on_progress:
         on_progress("Downloading Comprehensive Rules from Wizards of the Coast...")
     cr_bytes = await download_file(WOTC_CR_URL, on_progress)
+    (cache_dir / "MagicCompRules.txt").write_bytes(cr_bytes)
     cr_text = cr_bytes.decode("utf-8", errors="ignore")
 
     if on_progress:
@@ -1997,6 +2085,7 @@ async def sync_all_data(
     if on_progress:
         on_progress("Downloading Scryfall bulk cards data...")
     cards_bytes = await download_file(default_cards_url)
+    (cache_dir / "default-cards.json").write_bytes(cards_bytes)
     cards_data = json.loads(cards_bytes)
 
     rulings_data = []
@@ -2004,6 +2093,7 @@ async def sync_all_data(
         if on_progress:
             on_progress("Downloading Scryfall Gatherer rulings data...")
         rulings_bytes = await download_file(rulings_url)
+        (cache_dir / "rulings.json").write_bytes(rulings_bytes)
         rulings_data = json.loads(rulings_bytes)
 
     if on_progress:
@@ -2105,14 +2195,18 @@ class HelpModal(ModalScreen):
         self.dismiss()
 
 class CardInspectorWidget(VerticalScroll):
+    def compose(self) -> ComposeResult:
+        yield TextualMarkdown("No cards currently selected.\nMention cards in `[[brackets]]` or natural language.", id="card-markdown", classes="dim-text")
+
     def update_cards(self, cards: list[Card]):
-        self.remove_children()
+        widget = self.query_one("#card-markdown", TextualMarkdown)
         if not cards:
-            self.mount(Static("No cards currently selected.\nMention cards in [[brackets]] or natural language.", classes="dim-text"))
+            widget.update("No cards currently selected.\nMention cards in `[[brackets]]` or natural language.")
             return
+        cards_md = []
         for card in cards:
             rulings_md = "\n".join([f"* **({r['date']})** {r['text']}" for r in card.rulings])
-            card_md = f"""### {card.name} `{card.mana_cost}`
+            cards_md.append(f"""### {card.name} `{card.mana_cost}`
 *{card.type_line}*
 
 {card.oracle_text}
@@ -2122,18 +2216,22 @@ class CardInspectorWidget(VerticalScroll):
 {rulings_md or '_No rulings on record._'}
 
 [Scryfall Link]({card.scryfall_search_url})
-"""
-            self.mount(TextualMarkdown(card_md))
+""")
+        widget.update("\n\n---\n\n".join(cards_md))
 
 class RuleInspectorWidget(VerticalScroll):
+    def compose(self) -> ComposeResult:
+        yield TextualMarkdown("No rules currently cited.", id="rule-markdown", classes="dim-text")
+
     def update_rules(self, rules: list[Rule]):
-        self.remove_children()
+        widget = self.query_one("#rule-markdown", TextualMarkdown)
         if not rules:
-            self.mount(Static("No rules currently cited.", classes="dim-text"))
+            widget.update("No rules currently cited.")
             return
+        rules_md = []
         for rule in rules:
             examples_md = "\n".join([f"> _{ex}_" for ex in rule.examples])
-            rule_md = f"""### CR {rule.rule_id}
+            rules_md.append(f"""### CR {rule.rule_id}
 **{rule.section}**
 
 {rule.text}
@@ -2141,8 +2239,8 @@ class RuleInspectorWidget(VerticalScroll):
 {examples_md}
 
 [Yawgatog Link]({rule.yawgatog_url})
-"""
-            self.mount(TextualMarkdown(rule_md))
+""")
+        widget.update("\n\n---\n\n".join(rules_md))
 ```
 
 ```python
@@ -2216,6 +2314,7 @@ class JuuudgeApp(App):
         ("ctrl+l", "clear_chat", "Clear Chat"),
         ("ctrl+o", "open_link", "Open Link"),
         ("ctrl+k", "focus_input", "Focus Input"),
+        ("slash", "focus_input", "Focus Input (/)"),
         ("q", "quit", "Quit"),
     ]
 
@@ -2538,7 +2637,7 @@ async def test_blood_moon_urzas_saga_scenario(populated_judge):
     
     mock_provider = MagicMock()
     async def mock_stream(*args, **kwargs):
-        yield LLMChunk(text="**VERDICT:** Yes, Urza's Saga will be put into the graveyard as a state-based action.")
+        yield LLMChunk(text="**VERDICT:** Yes, Urza's Saga will be put into the graveyard as a state-based action under [CR 704.5s](https://yawgatog.com/resources/magic-rules/#R7045s).")
         yield LLMChunk(is_done=True)
 
     mock_provider.stream_completion = mock_stream
@@ -2555,6 +2654,30 @@ async def test_blood_moon_urzas_saga_scenario(populated_judge):
 
     token_event = "".join([e["text"] for e in events if e["type"] == "token"])
     assert "put into the graveyard" in token_event
+
+@pytest.mark.asyncio
+async def test_deflecting_swat_target_self_scenario(populated_judge):
+    db, vec_store = populated_judge
+
+    mock_provider = MagicMock()
+    async def mock_stream(*args, **kwargs):
+        yield LLMChunk(text="**VERDICT:** No, a spell cannot target itself under [CR 115.7b](https://yawgatog.com/resources/magic-rules/#R1157b).")
+        yield LLMChunk(is_done=True)
+
+    mock_provider.stream_completion = mock_stream
+    agent = JudgeAgent(db, vec_store, mock_provider)
+
+    events = []
+    async for event in agent.ask_stream("Can I use Deflecting Swat to make Counterspell target itself?"):
+        events.append(event)
+
+    card_event = next(e for e in events if e["type"] == "cards_found")
+    card_names = {c.name for c in card_event["cards"]}
+    assert "Deflecting Swat" in card_names
+    assert "Counterspell" in card_names
+
+    token_event = "".join([e["text"] for e in events if e["type"] == "token"])
+    assert "cannot target itself" in token_event
 ```
 
 - [ ] **Step 2: Run test suite to verify everything passes**
