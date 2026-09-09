@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import Any, List, Optional
 import re
 import urllib.parse
+from juuudge.constants import SCRYFALL_SEARCH_URL_BASE, YAWGATOG_RULES_URL_BASE
 
 @dataclass
 class CardRuling:
@@ -25,7 +26,7 @@ class Card:
     @property
     def scryfall_search_url(self) -> str:
         encoded = urllib.parse.quote(f'!\"{self.name}\"')
-        return f"https://scryfall.com/search?q={encoded}"
+        return f"{SCRYFALL_SEARCH_URL_BASE}{encoded}"
 
 @dataclass
 class Rule:
@@ -40,7 +41,7 @@ class Rule:
     def yawgatog_url(self) -> str:
         # e.g., 613.1d -> #R6131d
         cleaned = re.sub(r'[^0-9a-zA-Z]', '', self.rule_id)
-        return f"https://yawgatog.com/resources/magic-rules/#R{cleaned}"
+        return f"{YAWGATOG_RULES_URL_BASE}{cleaned}"
 
 @dataclass
 class GlossaryTerm:

@@ -3,9 +3,20 @@ import json
 import httpx
 from juuudge.agent.providers.base import LLMProvider
 from juuudge.models import LLMChunk, ToolCallRequest
+from juuudge.constants import (
+    DEFAULT_OLLAMA_HOST,
+    DEFAULT_OLLAMA_MODEL,
+    DEFAULT_TEMPERATURE,
+    OLLAMA_DEFAULT_TIMEOUT,
+)
 
 class OllamaProvider(LLMProvider):
-    def __init__(self, host: str = "http://localhost:11434", model: str = "llama3.3", temperature: float = 0.0):
+    def __init__(
+        self,
+        host: str = DEFAULT_OLLAMA_HOST,
+        model: str = DEFAULT_OLLAMA_MODEL,
+        temperature: float = DEFAULT_TEMPERATURE,
+    ):
         self.host = host.rstrip("/")
         self.model = model
         self.temperature = temperature
@@ -47,7 +58,7 @@ class OllamaProvider(LLMProvider):
         if tools:
             payload["tools"] = tools
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=OLLAMA_DEFAULT_TIMEOUT) as client:
             async with client.stream("POST", f"{self.host}/api/chat", json=payload) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():

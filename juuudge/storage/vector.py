@@ -3,9 +3,16 @@ from typing import List, Dict, Any
 import lancedb
 from fastembed import TextEmbedding
 from juuudge.models import Rule, GlossaryTerm
+from juuudge.constants import (
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_RULES_VEC_TABLE,
+    DEFAULT_GLOSSARY_VEC_TABLE,
+    DEFAULT_TOP_K_RULES,
+    DEFAULT_TOP_K_GLOSSARY,
+)
 
 class VectorStore:
-    def __init__(self, db_dir: Path, model_name: str = "BAAI/bge-small-en-v1.5"):
+    def __init__(self, db_dir: Path, model_name: str = DEFAULT_EMBEDDING_MODEL):
         self.db_dir = db_dir
         self.db_dir.mkdir(parents=True, exist_ok=True)
         self.db = lancedb.connect(str(self.db_dir))
@@ -39,7 +46,7 @@ class VectorStore:
                 "vector": vec
             })
 
-        table_name = "cr_rules_vec"
+        table_name = DEFAULT_RULES_VEC_TABLE
         if table_name in self._get_tables():
             self.db.drop_table(table_name)
         self.db.create_table(table_name, data=data)
@@ -58,13 +65,13 @@ class VectorStore:
                 "vector": vec
             })
 
-        table_name = "glossary_vec"
+        table_name = DEFAULT_GLOSSARY_VEC_TABLE
         if table_name in self._get_tables():
             self.db.drop_table(table_name)
         self.db.create_table(table_name, data=data)
 
-    def search_rules(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
-        table_name = "cr_rules_vec"
+    def search_rules(self, query: str, top_k: int = DEFAULT_TOP_K_RULES) -> List[Dict[str, Any]]:
+        table_name = DEFAULT_RULES_VEC_TABLE
         if table_name not in self._get_tables():
             return []
         tbl = self.db.open_table(table_name)
@@ -72,8 +79,8 @@ class VectorStore:
         results = tbl.search(query_vec).limit(top_k).to_list()
         return results
 
-    def search_glossary(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
-        table_name = "glossary_vec"
+    def search_glossary(self, query: str, top_k: int = DEFAULT_TOP_K_GLOSSARY) -> List[Dict[str, Any]]:
+        table_name = DEFAULT_GLOSSARY_VEC_TABLE
         if table_name not in self._get_tables():
             return []
         tbl = self.db.open_table(table_name)

@@ -6,6 +6,18 @@ try:
 except ImportError:
     import tomli as tomllib
 
+from juuudge.constants import (
+    DEFAULT_LLM_PROVIDER,
+    DEFAULT_ANTHROPIC_MODEL,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_OLLAMA_HOST,
+    DEFAULT_MAX_TOOL_ROUNDS,
+    DEFAULT_TOP_K_RULES,
+    DEFAULT_TOP_K_GLOSSARY,
+    DEFAULT_EXPAND_HIERARCHICAL_RULES,
+    DEFAULT_CONFIG_FILENAME,
+)
+
 def get_app_dir() -> Path:
     override = os.environ.get("JUUUDGE_DIR")
     if override:
@@ -21,18 +33,18 @@ def get_app_dir() -> Path:
 
 @dataclass
 class LLMConfig:
-    provider: str = "anthropic"
-    model: str = "claude-3-7-sonnet"
+    provider: str = DEFAULT_LLM_PROVIDER
+    model: str = DEFAULT_ANTHROPIC_MODEL
     api_key: str = ""
-    temperature: float = 0.0
-    ollama_host: str = "http://localhost:11434"
-    max_tool_rounds: int = 3
+    temperature: float = DEFAULT_TEMPERATURE
+    ollama_host: str = DEFAULT_OLLAMA_HOST
+    max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS
 
 @dataclass
 class RAGConfig:
-    top_k_rules: int = 5
-    top_k_glossary: int = 2
-    expand_hierarchical_rules: bool = True
+    top_k_rules: int = DEFAULT_TOP_K_RULES
+    top_k_glossary: int = DEFAULT_TOP_K_GLOSSARY
+    expand_hierarchical_rules: bool = DEFAULT_EXPAND_HIERARCHICAL_RULES
     embedder: str = "fastembed"
 
 @dataclass
@@ -42,7 +54,7 @@ class Config:
 
 def get_config() -> Config:
     app_dir = get_app_dir()
-    config_file = app_dir / "config.toml"
+    config_file = app_dir / DEFAULT_CONFIG_FILENAME
     cfg = Config()
 
     if config_file.exists():

@@ -9,6 +9,11 @@ from juuudge.ingest.sync import sync_all_data
 from juuudge.agent.providers.anthropic_provider import AnthropicProvider
 from juuudge.agent.providers.ollama_provider import OllamaProvider
 from juuudge.agent.judge_loop import JudgeAgent
+from juuudge.constants import (
+    DEFAULT_DB_FILENAME,
+    DEFAULT_LANCEDB_DIRNAME,
+    DEFAULT_CACHE_DIRNAME,
+)
 
 console = Console()
 
@@ -28,8 +33,8 @@ def ask(question: str):
     async def _run():
         cfg = get_config()
         app_dir = get_app_dir()
-        db = Database(app_dir / "juuudge.db")
-        vec_store = VectorStore(app_dir / "lancedb")
+        db = Database(app_dir / DEFAULT_DB_FILENAME)
+        vec_store = VectorStore(app_dir / DEFAULT_LANCEDB_DIRNAME)
         db.init_schema()
 
         if cfg.llm.provider == "ollama":
@@ -54,7 +59,7 @@ def ask(question: str):
 def card(name: str):
     """Look up card oracle text and Gatherer rulings."""
     app_dir = get_app_dir()
-    db = Database(app_dir / "juuudge.db")
+    db = Database(app_dir / DEFAULT_DB_FILENAME)
     db.init_schema()
     c = db.get_card_by_name(name)
     if not c:
@@ -82,7 +87,7 @@ def card(name: str):
 def rule(rule_id: str):
     """Look up an official MTG Comprehensive Rule by ID (e.g. 613.1d)."""
     app_dir = get_app_dir()
-    db = Database(app_dir / "juuudge.db")
+    db = Database(app_dir / DEFAULT_DB_FILENAME)
     db.init_schema()
     r = db.get_rule_by_id(rule_id)
     if not r:
@@ -104,15 +109,15 @@ def sync(force: bool):
     """Download and sync Scryfall cards and MTG Comprehensive Rules."""
     async def _run():
         app_dir = get_app_dir()
-        db = Database(app_dir / "juuudge.db")
+        db = Database(app_dir / DEFAULT_DB_FILENAME)
         db.init_schema()
-        vec_store = VectorStore(app_dir / "lancedb")
+        vec_store = VectorStore(app_dir / DEFAULT_LANCEDB_DIRNAME)
         
         with console.status("[bold green]Starting sync...") as status:
             def on_progress(msg: str):
                 status.update(f"[bold green]{msg}")
             
-            await sync_all_data(db, vec_store, cache_dir=app_dir / "cache", on_progress=on_progress)
+            await sync_all_data(db, vec_store, cache_dir=app_dir / DEFAULT_CACHE_DIRNAME, on_progress=on_progress)
             console.print("[bold green]✓ Database sync complete![/bold green]")
 
     asyncio.run(_run())

@@ -3,15 +3,9 @@ from typing import List, Set
 from rapidfuzz import process, fuzz
 from juuudge.storage.db import Database
 from juuudge.models import Card
+from juuudge.constants import COMMON_STOPWORDS
 
 BRACKET_PATTERN = re.compile(r'\[\[(.*?)\]\]')
-
-# Common English words that are also MTG card names to avoid false positive matches in natural sentences
-COMMON_STOPWORDS = {
-    "turn", "kill", "down", "life", "deal", "play", "draw", "land", 
-    "pass", "target", "hand", "spell", "hero", "cost", "type", 
-    "fast", "slow", "time", "game", "deck", "side", "rule", "card"
-}
 
 class CardExtractor:
     def __init__(self, db: Database):

@@ -7,19 +7,9 @@ from juuudge.retrieval.rule_retriever import RuleRetriever
 from juuudge.agent.providers.base import LLMProvider
 from juuudge.agent.tools import create_judge_tools, execute_tool
 from juuudge.models import Card, Rule
+from juuudge.constants import JUDGE_SYSTEM_PROMPT, DEFAULT_MAX_TOOL_ROUNDS
 
-SYSTEM_PROMPT = """You are juuudge, an elite certified Level 3 Magic: The Gathering Rules Judge.
-Your mission is to provide 100% accurate, authoritative, and crystal-clear rulings on MTG mechanics, priority, stack resolution, continuous effects (layers), replacement effects, and state-based actions.
-
-RULES OF ENGAGEMENT:
-1. Always format output with:
-   - **VERDICT:** Immediate, direct 1-sentence answer to the player's core question.
-   - **STEP-BY-STEP RESOLUTION:** Clean chronological mechanics breakdown.
-   - **OFFICIAL CITATIONS:** Exact CR rule citations (e.g. `[CR 613.1d](https://yawgatog.com/resources/magic-rules/#R6131d)`).
-2. Whenever mentioning an MTG card name, format it as a markdown search link: `[Card Name](https://scryfall.com/search?q=%21"Card+Name")`.
-3. Whenever citing a Comprehensive Rule, link it using Yawgatog anchor: `[CR 613.1d](https://yawgatog.com/resources/magic-rules/#R6131d)`.
-4. If crucial card text, rule details, or glossary terms are missing from the injected context, use your available tools to look them up before issuing the verdict.
-"""
+SYSTEM_PROMPT = JUDGE_SYSTEM_PROMPT
 
 class JudgeAgent:
     def __init__(
@@ -27,7 +17,7 @@ class JudgeAgent:
         db: Database,
         vec_store: VectorStore,
         provider: LLMProvider,
-        max_rounds: int = 3
+        max_rounds: int = DEFAULT_MAX_TOOL_ROUNDS
     ):
         self.db = db
         self.vec_store = vec_store

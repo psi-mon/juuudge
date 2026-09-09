@@ -3,9 +3,19 @@ import json
 import anthropic
 from juuudge.agent.providers.base import LLMProvider
 from juuudge.models import LLMChunk, ToolCallRequest
+from juuudge.constants import (
+    DEFAULT_ANTHROPIC_MODEL,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_MAX_TOKENS,
+)
 
 class AnthropicProvider(LLMProvider):
-    def __init__(self, api_key: str, model: str = "claude-3-7-sonnet", temperature: float = 0.0):
+    def __init__(
+        self,
+        api_key: str,
+        model: str = DEFAULT_ANTHROPIC_MODEL,
+        temperature: float = DEFAULT_TEMPERATURE,
+    ):
         self.api_key = api_key
         self.model = model
         self.temperature = temperature
@@ -33,7 +43,7 @@ class AnthropicProvider(LLMProvider):
     ) -> AsyncIterator[LLMChunk]:
         kwargs: Dict[str, Any] = {
             "model": self.model,
-            "max_tokens": 4096,
+            "max_tokens": DEFAULT_MAX_TOKENS,
             "temperature": self.temperature,
             "system": system_prompt,
             "messages": messages,

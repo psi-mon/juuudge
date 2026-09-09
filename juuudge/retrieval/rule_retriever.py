@@ -4,6 +4,11 @@ from typing import List, Dict, Set
 from juuudge.storage.db import Database
 from juuudge.storage.vector import VectorStore
 from juuudge.models import Rule, GlossaryTerm
+from juuudge.constants import (
+    DEFAULT_EXPAND_HIERARCHICAL_RULES,
+    DEFAULT_TOP_K_RULES,
+    DEFAULT_TOP_K_GLOSSARY,
+)
 
 RULE_ID_REGEX = re.compile(r'\b(\d{3}\.\d+[a-z]?|\d{3}\.\d+|\d{3})\b')
 
@@ -13,12 +18,12 @@ class GroundedContext:
     glossary: List[GlossaryTerm] = field(default_factory=list)
 
 class RuleRetriever:
-    def __init__(self, db: Database, vec_store: VectorStore, expand_hierarchical: bool = True):
+    def __init__(self, db: Database, vec_store: VectorStore, expand_hierarchical: bool = DEFAULT_EXPAND_HIERARCHICAL_RULES):
         self.db = db
         self.vec_store = vec_store
         self.expand_hierarchical = expand_hierarchical
 
-    def retrieve(self, query: str, top_k: int = 5) -> GroundedContext:
+    def retrieve(self, query: str, top_k: int = DEFAULT_TOP_K_RULES) -> GroundedContext:
         seen_rule_ids: Set[str] = set()
         matched_rules: List[Rule] = []
         matched_glossary: List[GlossaryTerm] = []

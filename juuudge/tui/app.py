@@ -12,55 +12,10 @@ from juuudge.agent.providers.ollama_provider import OllamaProvider
 from juuudge.agent.judge_loop import JudgeAgent
 from juuudge.tui.widgets import HelpModal, CardInspectorWidget, RuleInspectorWidget
 from juuudge.models import Card, Rule
+from juuudge.constants import TUI_CSS, DEFAULT_DB_FILENAME, DEFAULT_LANCEDB_DIRNAME
 
 class JuuudgeApp(App):
-    CSS = """
-    Screen {
-        background: #121214;
-        color: #E1E1E6;
-    }
-    #main-container {
-        height: 1fr;
-    }
-    #chat-pane {
-        width: 60%;
-        border-right: solid #29292E;
-        padding: 1 2;
-    }
-    #side-pane {
-        width: 40%;
-    }
-    #card-pane {
-        height: 50%;
-        border-bottom: solid #29292E;
-        padding: 1;
-    }
-    #rule-pane {
-        height: 50%;
-        padding: 1;
-    }
-    #input-box {
-        dock: bottom;
-        margin: 1;
-        border: tall #00875F;
-    }
-    .dim-text {
-        color: #7C7C8A;
-    }
-    #help-dialog {
-        background: #202024;
-        border: thick #00875F;
-        padding: 2;
-        width: 60;
-        height: auto;
-        align: center middle;
-    }
-    #help-title {
-        text-style: bold;
-        color: #00B37E;
-        margin-bottom: 1;
-    }
-    """
+    CSS = TUI_CSS
 
     BINDINGS = [
         ("question_mark", "show_help", "Help (?)"),
@@ -75,8 +30,8 @@ class JuuudgeApp(App):
         super().__init__()
         self.cfg = get_config()
         app_dir = get_app_dir()
-        self.db = db or Database(app_dir / "juuudge.db")
-        self.vec_store = vec_store or VectorStore(app_dir / "lancedb")
+        self.db = db or Database(app_dir / DEFAULT_DB_FILENAME)
+        self.vec_store = vec_store or VectorStore(app_dir / DEFAULT_LANCEDB_DIRNAME)
         self.db.init_schema()
 
         if self.cfg.llm.provider == "ollama":
