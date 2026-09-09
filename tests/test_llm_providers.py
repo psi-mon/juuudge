@@ -29,3 +29,5 @@ async def test_anthropic_provider_mock_stream():
         chunks.append(chunk.text)
 
     assert "".join(chunks) == "Yes, it dies."
+    assert provider.model == "claude-3-7-sonnet-20250219"
+    assert mock_client.messages.create.call_args.kwargs["model"] == "claude-3-7-sonnet-20250219"

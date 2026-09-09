@@ -8,7 +8,7 @@ def test_config_defaults(monkeypatch, tmp_path):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-123")
     cfg = get_config()
     assert cfg.llm.provider == "anthropic"
-    assert cfg.llm.model == "claude-3-7-sonnet"
+    assert cfg.llm.model == "claude-3-7-sonnet-20250219"
     assert cfg.llm.api_key == "test-key-123"
     assert cfg.rag.top_k_rules == 5
     assert cfg.rag.expand_hierarchical_rules is True

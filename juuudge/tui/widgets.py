@@ -4,6 +4,7 @@ from textual.containers import Vertical, VerticalScroll, Horizontal
 from textual.screen import ModalScreen
 from textual.widgets import Static, Input, Button, Label, Markdown as TextualMarkdown
 from juuudge.models import Card, Rule
+from juuudge.constants import DEFAULT_ANTHROPIC_MODEL, DEFAULT_OLLAMA_MODEL, DEFAULT_OLLAMA_HOST
 
 class HelpModal(ModalScreen):
     """Interactive help modal showing keybindings."""
@@ -55,9 +56,9 @@ class SetupModal(ModalScreen[bool]):
             Label("Anthropic API Key (hidden in DB):", id="lbl-api-key"),
             Input(value=self.current_api_key, placeholder="sk-ant-...", password=True, id="input-api-key"),
             Label("Model Name:", id="lbl-model"),
-            Input(value=self.current_model or ("claude-3-7-sonnet" if self.provider == "anthropic" else "llama3.3"), placeholder="Model name", id="input-model"),
+            Input(value=self.current_model or (DEFAULT_ANTHROPIC_MODEL if self.provider == "anthropic" else DEFAULT_OLLAMA_MODEL), placeholder="Model name", id="input-model"),
             Label("Ollama Host URL (for Ollama only):", id="lbl-host"),
-            Input(value=self.current_host or "http://localhost:11434", placeholder="http://localhost:11434", id="input-host"),
+            Input(value=self.current_host or DEFAULT_OLLAMA_HOST, placeholder=DEFAULT_OLLAMA_HOST, id="input-host"),
             Horizontal(
                 Button("Save & Apply", variant="success", id="btn-save-setup"),
                 Button("Cancel", variant="error", id="btn-cancel-setup"),
@@ -76,15 +77,15 @@ class SetupModal(ModalScreen[bool]):
             self.query_one("#btn-prov-anthropic", Button).variant = "primary"
             self.query_one("#btn-prov-ollama", Button).variant = "default"
             model_input = self.query_one("#input-model", Input)
-            if not model_input.value or model_input.value == "llama3.3":
-                model_input.value = "claude-3-7-sonnet"
+            if not model_input.value or model_input.value == DEFAULT_OLLAMA_MODEL:
+                model_input.value = DEFAULT_ANTHROPIC_MODEL
         elif btn_id == "btn-prov-ollama":
             self.provider = "ollama"
             self.query_one("#btn-prov-anthropic", Button).variant = "default"
             self.query_one("#btn-prov-ollama", Button).variant = "primary"
             model_input = self.query_one("#input-model", Input)
-            if not model_input.value or model_input.value == "claude-3-7-sonnet":
-                model_input.value = "llama3.3"
+            if not model_input.value or model_input.value == DEFAULT_ANTHROPIC_MODEL:
+                model_input.value = DEFAULT_OLLAMA_MODEL
         elif btn_id == "btn-cancel-setup":
             self.dismiss(False)
         elif btn_id == "btn-save-setup":
@@ -93,9 +94,9 @@ class SetupModal(ModalScreen[bool]):
             host = self.query_one("#input-host", Input).value.strip()
 
             if self.provider == "anthropic":
-                self.db.save_provider_config(provider="anthropic", api_key=api_key, model=model or "claude-3-7-sonnet")
+                self.db.save_provider_config(provider="anthropic", api_key=api_key, model=model or DEFAULT_ANTHROPIC_MODEL)
             else:
-                self.db.save_provider_config(provider="ollama", host=host or "http://localhost:11434", model=model or "llama3.3")
+                self.db.save_provider_config(provider="ollama", host=host or DEFAULT_OLLAMA_HOST, model=model or DEFAULT_OLLAMA_MODEL)
 
             if self.on_saved:
                 self.on_saved()

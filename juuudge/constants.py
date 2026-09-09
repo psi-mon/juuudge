@@ -27,12 +27,28 @@ RULINGS_FILENAME = "rulings.json"
 # LLM Defaults & Configuration
 # ==============================================================================
 DEFAULT_LLM_PROVIDER = "anthropic"
-DEFAULT_ANTHROPIC_MODEL = "claude-3-7-sonnet"
+DEFAULT_ANTHROPIC_MODEL = "claude-3-7-sonnet-20250219"
 DEFAULT_OLLAMA_MODEL = "llama3.3"
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 DEFAULT_TEMPERATURE = 0.0
 DEFAULT_MAX_TOOL_ROUNDS = 3
 DEFAULT_MAX_TOKENS = 4096
+
+ANTHROPIC_MODEL_ALIASES = {
+    "claude-3-7-sonnet": "claude-3-7-sonnet-20250219",
+    "claude-3.7-sonnet": "claude-3-7-sonnet-20250219",
+    "claude-3-5-sonnet": "claude-3-5-sonnet-20241022",
+    "claude-3.5-sonnet": "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku": "claude-3-5-haiku-20241022",
+    "claude-3.5-haiku": "claude-3-5-haiku-20241022",
+    "claude-3-opus": "claude-3-opus-20240229",
+    "claude-3-sonnet": "claude-3-sonnet-20240229",
+    "claude-3-haiku": "claude-3-haiku-20240307",
+}
+
+def resolve_anthropic_model(model: str) -> str:
+    cleaned = (model or "").strip()
+    return ANTHROPIC_MODEL_ALIASES.get(cleaned.lower(), cleaned)
 
 # ==============================================================================
 # RAG & Embeddings Defaults

@@ -7,6 +7,7 @@ from juuudge.constants import (
     DEFAULT_ANTHROPIC_MODEL,
     DEFAULT_TEMPERATURE,
     DEFAULT_MAX_TOKENS,
+    resolve_anthropic_model,
 )
 
 class AnthropicProvider(LLMProvider):
@@ -17,7 +18,7 @@ class AnthropicProvider(LLMProvider):
         temperature: float = DEFAULT_TEMPERATURE,
     ):
         self.api_key = api_key
-        self.model = model
+        self.model = resolve_anthropic_model(model)
         self.temperature = temperature
         self._client: anthropic.AsyncAnthropic | None = None
 
@@ -44,7 +45,6 @@ class AnthropicProvider(LLMProvider):
         kwargs: Dict[str, Any] = {
             "model": self.model,
             "max_tokens": DEFAULT_MAX_TOKENS,
-            "temperature": self.temperature,
             "system": system_prompt,
             "messages": messages,
         }

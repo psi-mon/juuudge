@@ -8,7 +8,9 @@ def test_constants_defined_and_exported():
     assert constants.SCRYFALL_SEARCH_URL_BASE.startswith("https://scryfall.com/search")
     assert constants.YAWGATOG_RULES_URL_BASE.startswith("https://yawgatog.com/resources/magic-rules/")
     assert constants.DEFAULT_LLM_PROVIDER == "anthropic"
-    assert constants.DEFAULT_ANTHROPIC_MODEL == "claude-3-7-sonnet"
+    assert constants.DEFAULT_ANTHROPIC_MODEL == "claude-3-7-sonnet-20250219"
+    assert constants.resolve_anthropic_model("claude-3-7-sonnet") == "claude-3-7-sonnet-20250219"
+    assert constants.resolve_anthropic_model("claude-3-5-sonnet") == "claude-3-5-sonnet-20241022"
     assert constants.DEFAULT_OLLAMA_MODEL == "llama3.3"
     assert constants.DEFAULT_OLLAMA_HOST == "http://localhost:11434"
     assert constants.DEFAULT_DB_FILENAME == "juuudge.db"
