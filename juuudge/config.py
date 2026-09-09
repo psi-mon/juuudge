@@ -1,3 +1,4 @@
+from typing import Optional, Tuple
 from dataclasses import dataclass, field
 from pathlib import Path
 import os
@@ -16,6 +17,7 @@ from juuudge.constants import (
     DEFAULT_TOP_K_GLOSSARY,
     DEFAULT_EXPAND_HIERARCHICAL_RULES,
     DEFAULT_CONFIG_FILENAME,
+    DEFAULT_DB_FILENAME,
 )
 
 def get_app_dir() -> Path:
@@ -51,12 +53,14 @@ class RAGConfig:
 class Config:
     llm: LLMConfig = field(default_factory=LLMConfig)
     rag: RAGConfig = field(default_factory=RAGConfig)
+    setup_completed: bool = False
 
-def get_config() -> Config:
+def get_config(db: Optional[object] = None) -> Config:
     app_dir = get_app_dir()
     config_file = app_dir / DEFAULT_CONFIG_FILENAME
     cfg = Config()
 
+    # 1. Load from config.toml if present
     if config_file.exists():
         with open(config_file, "rb") as f:
             data = tomllib.load(f)
@@ -74,9 +78,65 @@ def get_config() -> Config:
                 cfg.rag.top_k_glossary = int(rag_data.get("top_k_glossary", cfg.rag.top_k_glossary))
                 cfg.rag.expand_hierarchical_rules = bool(rag_data.get("expand_hierarchical_rules", cfg.rag.expand_hierarchical_rules))
 
-    # Env override for API key
+    # 2. Load from DB settings if available
+    if db is not None and hasattr(db, "get_provider_config"):
+        p_cfg = db.get_provider_config()
+        if p_cfg.get("setup_completed"):
+            cfg.setup_completed = True
+            if p_cfg.get("provider"):
+                cfg.llm.provider = p_cfg["provider"]
+            if p_cfg.get("api_key"):
+                cfg.llm.api_key = p_cfg["api_key"]
+            if p_cfg.get("model"):
+                cfg.llm.model = p_cfg["model"]
+            if p_cfg.get("ollama_host"):
+                cfg.llm.ollama_host = p_cfg["ollama_host"]
+    elif db is None:
+        db_path = app_dir / DEFAULT_DB_FILENAME
+        if db_path.exists():
+            from juuudge.storage.db import Database
+            try:
+                local_db = Database(db_path)
+                p_cfg = local_db.get_provider_config()
+                if p_cfg.get("setup_completed"):
+                    cfg.setup_completed = True
+                    if p_cfg.get("provider"):
+                        cfg.llm.provider = p_cfg["provider"]
+                    if p_cfg.get("api_key"):
+                        cfg.llm.api_key = p_cfg["api_key"]
+                    if p_cfg.get("model"):
+                        cfg.llm.model = p_cfg["model"]
+                    if p_cfg.get("ollama_host"):
+                        cfg.llm.ollama_host = p_cfg["ollama_host"]
+            except Exception:
+                pass
+
+    # 3. Env override for API key
     env_anthropic = os.environ.get("ANTHROPIC_API_KEY")
     if env_anthropic and not cfg.llm.api_key:
         cfg.llm.api_key = env_anthropic
+        cfg.setup_completed = True
 
     return cfg
+
+def validate_provider_setup(cfg: Config) -> Tuple[bool, str]:
+    """Validate whether LLM provider is properly configured before running agent."""
+    provider = (cfg.llm.provider or "").lower()
+    if provider == "anthropic":
+        if not cfg.llm.api_key or not cfg.llm.api_key.strip():
+            return (
+                False,
+                "No Anthropic API key configured. Please run 'juuudge setup' (or Ctrl+S in the TUI) to configure your provider."
+            )
+        return True, ""
+    elif provider in ("ollama", "llama"):
+        if not cfg.llm.ollama_host or not cfg.llm.model:
+            return (
+                False,
+                "Ollama host or model is missing. Please run 'juuudge setup' (or Ctrl+S in the TUI) to configure your provider."
+            )
+        return True, ""
+    return (
+        False,
+        f"Unknown LLM provider '{provider}'. Please run 'juuudge setup' to configure your provider."
+    )

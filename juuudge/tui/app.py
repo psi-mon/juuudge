@@ -4,13 +4,13 @@ from typing import Optional
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Header, Footer, Input, Static, Markdown as TextualMarkdown
-from juuudge.config import get_config, get_app_dir
+from juuudge.config import get_config, get_app_dir, validate_provider_setup
 from juuudge.storage.db import Database
 from juuudge.storage.vector import VectorStore
 from juuudge.agent.providers.anthropic_provider import AnthropicProvider
 from juuudge.agent.providers.ollama_provider import OllamaProvider
 from juuudge.agent.judge_loop import JudgeAgent
-from juuudge.tui.widgets import HelpModal, CardInspectorWidget, RuleInspectorWidget
+from juuudge.tui.widgets import HelpModal, SetupModal, CardInspectorWidget, RuleInspectorWidget
 from juuudge.models import Card, Rule
 from juuudge.constants import TUI_CSS, DEFAULT_DB_FILENAME, DEFAULT_LANCEDB_DIRNAME
 
@@ -19,6 +19,7 @@ class JuuudgeApp(App):
 
     BINDINGS = [
         ("question_mark", "show_help", "Help (?)"),
+        ("ctrl+s", "show_setup", "Setup"),
         ("ctrl+l", "clear_chat", "Clear Chat"),
         ("ctrl+o", "open_link", "Open Link"),
         ("ctrl+k", "focus_input", "Focus Input"),
@@ -28,21 +29,30 @@ class JuuudgeApp(App):
 
     def __init__(self, db: Optional[Database] = None, vec_store: Optional[VectorStore] = None):
         super().__init__()
-        self.cfg = get_config()
         app_dir = get_app_dir()
         self.db = db or Database(app_dir / DEFAULT_DB_FILENAME)
         self.vec_store = vec_store or VectorStore(app_dir / DEFAULT_LANCEDB_DIRNAME)
         self.db.init_schema()
+        self.cfg = get_config(self.db)
 
+        self._init_agent()
+        self.chat_history: list[str] = []
+        self.last_cards: list[Card] = []
+        self.last_rules: list[Rule] = []
+
+    def _init_agent(self):
         if self.cfg.llm.provider == "ollama":
             provider = OllamaProvider(host=self.cfg.llm.ollama_host, model=self.cfg.llm.model)
         else:
             provider = AnthropicProvider(api_key=self.cfg.llm.api_key, model=self.cfg.llm.model)
-
         self.agent = JudgeAgent(self.db, self.vec_store, provider, max_rounds=self.cfg.llm.max_tool_rounds)
-        self.chat_history: list[str] = []
-        self.last_cards: list[Card] = []
-        self.last_rules: list[Rule] = []
+
+    def _reload_provider(self):
+        self.cfg = get_config(self.db)
+        self._init_agent()
+        chat = self.query_one("#chat-content", Static)
+        self.chat_history.append(f"\n\n[bold green]✓ Provider reconfigured:[/bold green] {self.cfg.llm.provider} ({self.cfg.llm.model})")
+        chat.update("".join(self.chat_history))
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -57,6 +67,9 @@ class JuuudgeApp(App):
 
     def action_show_help(self):
         self.push_screen(HelpModal())
+
+    def action_show_setup(self):
+        self.push_screen(SetupModal(self.db, on_saved=self._reload_provider))
 
     def action_clear_chat(self):
         self.chat_history.clear()
@@ -77,6 +90,19 @@ class JuuudgeApp(App):
         if not query:
             return
         event.input.value = ""
+
+        # Validate provider setup before attempting agent call
+        valid, error_msg = validate_provider_setup(self.cfg)
+        if not valid:
+            chat = self.query_one("#chat-content", Static)
+            self.chat_history.append(
+                f"\n\n**Player:** {query}\n\n"
+                f"[bold red]⚠️ Provider Setup Required:[/bold red] {error_msg}\n"
+                f"Opening setup dialog now (or press [bold green]Ctrl+S[/bold green] / run `juuudge setup`)."
+            )
+            chat.update("".join(self.chat_history))
+            self.push_screen(SetupModal(self.db, on_saved=self._reload_provider))
+            return
         
         chat = self.query_one("#chat-content", Static)
         self.chat_history.append(f"\n\n**Player:** {query}\n\n**juuudge:** ")

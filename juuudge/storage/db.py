@@ -81,6 +81,14 @@ class Database:
                 );
             """)
 
+            # Key-Value Settings Table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                );
+            """)
+
     def insert_cards(self, cards: List[Card]):
         conn = self.get_connection()
         with conn:
@@ -255,3 +263,70 @@ class Database:
         for row in cur.fetchall():
             results.append(GlossaryTerm(term=row["term"], definition=row["definition"]))
         return results
+
+    # =========================================================================
+    # Settings & Provider Configuration
+    # =========================================================================
+
+    def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        conn = self.get_connection()
+        cur = conn.execute("SELECT value FROM settings WHERE key = ?", (key,))
+        row = cur.fetchone()
+        if row is None:
+            return default
+        return row["value"]
+
+    def set_setting(self, key: str, value: str):
+        conn = self.get_connection()
+        with conn:
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
+
+    def delete_setting(self, key: str):
+        conn = self.get_connection()
+        with conn:
+            conn.execute("DELETE FROM settings WHERE key = ?", (key,))
+
+    def save_provider_config(
+        self,
+        provider: str,
+        api_key: str = "",
+        model: str = "",
+        host: str = ""
+    ):
+        from juuudge.crypto import encrypt_secret
+        self.set_setting("provider", provider)
+        if api_key:
+            self.set_setting("anthropic_api_key", encrypt_secret(api_key))
+        if model:
+            self.set_setting("model", model)
+        if host:
+            self.set_setting("ollama_host", host)
+        self.set_setting("setup_completed", "true")
+
+    def get_provider_config(self) -> dict:
+        from juuudge.crypto import decrypt_secret
+        provider = self.get_setting("provider", "")
+        enc_api_key = self.get_setting("anthropic_api_key", "")
+        api_key = decrypt_secret(enc_api_key) if enc_api_key else ""
+        model = self.get_setting("model", "")
+        ollama_host = self.get_setting("ollama_host", "")
+        setup_completed = self.get_setting("setup_completed", "false").lower() == "true"
+
+        return {
+            "provider": provider,
+            "api_key": api_key,
+            "model": model,
+            "ollama_host": ollama_host,
+            "setup_completed": setup_completed,
+        }
+
+    def is_provider_configured(self) -> bool:
+        cfg = self.get_provider_config()
+        if not cfg["setup_completed"]:
+            return False
+        provider = cfg["provider"].lower()
+        if provider == "anthropic":
+            return bool(cfg["api_key"])
+        elif provider in ("ollama", "llama"):
+            return True
+        return False

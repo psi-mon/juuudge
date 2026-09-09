@@ -69,3 +69,30 @@ def test_glossary_insert_and_lookup(test_db):
     fts_g = test_db.search_glossary_fts("modifies characteristics")
     assert len(fts_g) >= 1
     assert fts_g[0].term == "Continuous Effect"
+
+def test_db_settings_and_provider_config(test_db):
+    assert not test_db.is_provider_configured()
+
+    # Save Anthropic config
+    test_db.save_provider_config(provider="anthropic", api_key="sk-ant-test-secret-12345", model="claude-3-7-sonnet")
+    assert test_db.is_provider_configured()
+
+    # Raw value in DB must NOT be plaintext
+    raw_key = test_db.get_setting("anthropic_api_key")
+    assert raw_key.startswith("enc_v1:")
+    assert "sk-ant-test-secret-12345" not in raw_key
+
+    # Decrypted via getter
+    cfg = test_db.get_provider_config()
+    assert cfg["provider"] == "anthropic"
+    assert cfg["api_key"] == "sk-ant-test-secret-12345"
+    assert cfg["model"] == "claude-3-7-sonnet"
+    assert cfg["setup_completed"] is True
+
+    # Save Ollama config
+    test_db.save_provider_config(provider="ollama", host="http://localhost:11434", model="llama3.3")
+    assert test_db.is_provider_configured()
+    cfg_ollama = test_db.get_provider_config()
+    assert cfg_ollama["provider"] == "ollama"
+    assert cfg_ollama["ollama_host"] == "http://localhost:11434"
+    assert cfg_ollama["model"] == "llama3.3"

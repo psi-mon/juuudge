@@ -165,4 +165,24 @@ Screen {
     color: #00B37E;
     margin-bottom: 1;
 }
+#setup-dialog {
+    background: #202024;
+    border: thick #00875F;
+    padding: 2;
+    width: 70;
+    height: auto;
+    align: center middle;
+}
+#setup-title {
+    text-style: bold;
+    color: #00B37E;
+    margin-bottom: 1;
+}
+.setup-field {
+    margin-bottom: 1;
+}
+.setup-buttons {
+    margin-top: 1;
+    align: right middle;
+}
 """

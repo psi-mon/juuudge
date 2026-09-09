@@ -36,3 +36,23 @@ def test_models_instantiation():
     )
     assert rule.rule_id == "613.1d"
     assert rule.yawgatog_url == "https://yawgatog.com/resources/magic-rules/#R6131d"
+
+def test_validate_provider_setup():
+    from juuudge.config import validate_provider_setup, Config, LLMConfig
+    
+    # Anthropic missing key
+    cfg1 = Config(llm=LLMConfig(provider="anthropic", api_key=""))
+    valid, msg = validate_provider_setup(cfg1)
+    assert not valid
+    assert "juuudge setup" in msg
+
+    # Anthropic with key
+    cfg2 = Config(llm=LLMConfig(provider="anthropic", api_key="sk-ant-test"))
+    valid, msg = validate_provider_setup(cfg2)
+    assert valid
+    assert msg == ""
+
+    # Ollama valid
+    cfg3 = Config(llm=LLMConfig(provider="ollama", ollama_host="http://localhost:11434", model="llama3.3"))
+    valid, msg = validate_provider_setup(cfg3)
+    assert valid
