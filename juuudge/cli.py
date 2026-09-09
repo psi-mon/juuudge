@@ -3,7 +3,9 @@ import asyncio
 import click
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.markup import escape
 from juuudge.config import get_config, get_app_dir, validate_provider_setup
+from juuudge.crypto import mask_secret
 from juuudge.storage.db import Database
 from juuudge.storage.vector import VectorStore
 from juuudge.ingest.sync import sync_all_data
@@ -44,6 +46,7 @@ def setup(provider: Optional[str], api_key: Optional[str], model: Optional[str],
 
     if show:
         cfg = get_config(db)
+        raw_key = db.get_setting("anthropic_api_key", "")
         console.print("[bold cyan]══════════════════════════════════════════════════════[/bold cyan]")
         console.print("[bold white]          Current juuudge Provider Configuration[/bold white]")
         console.print("[bold cyan]══════════════════════════════════════════════════════[/bold cyan]\n")
@@ -52,14 +55,20 @@ def setup(provider: Optional[str], api_key: Optional[str], model: Optional[str],
             console.print("Run [bold green]juuudge setup[/bold green] to configure your provider.\n")
             return
 
-        active_provider = cfg.llm.provider
+        active_provider = escape(cfg.llm.provider)
+        active_model = escape(cfg.llm.model)
         console.print(f"[bold white]Provider:[/bold white]     [green]{active_provider}[/green]")
-        console.print(f"[bold white]Model:[/bold white]        [green]{cfg.llm.model}[/green]")
-        if active_provider == "anthropic":
-            key_display = cfg.llm.api_key if cfg.llm.api_key else "[dim]<not set>[/dim]"
-            console.print(f"[bold white]API Key:[/bold white]      [yellow]{key_display}[/yellow]")
-        elif active_provider in ("ollama", "llama"):
-            console.print(f"[bold white]Host:[/bold white]         [green]{cfg.llm.ollama_host}[/green]")
+        console.print(f"[bold white]Model:[/bold white]        [green]{active_model}[/green]")
+        if cfg.llm.provider == "anthropic":
+            if cfg.llm.api_key:
+                masked = mask_secret(cfg.llm.api_key)
+                console.print(f"[bold white]API Key:[/bold white]      [yellow]{escape(masked)}[/yellow]")
+            elif raw_key.startswith("enc_v1:"):
+                console.print("[bold white]API Key:[/bold white]      [red]<encrypted, decrypt failed>[/red]")
+            else:
+                console.print("[bold white]API Key:[/bold white]      [dim]<not set>[/dim]")
+        elif cfg.llm.provider in ("ollama", "llama"):
+            console.print(f"[bold white]Host:[/bold white]         [green]{escape(cfg.llm.ollama_host)}[/green]")
         console.print("")
         return
 

@@ -109,7 +109,46 @@ def test_cli_setup_show_anthropic(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert "anthropic" in result.output
     assert "claude-3-7-sonnet" in result.output
-    assert "sk-ant-test-super-secret-key-999" in result.output
+    # Must display masked fingerprint with last 4
+    assert "sk-ant-…-999" in result.output or "sk-ant-...-999" in result.output
+    # Must NOT contain the full secret
+    assert "sk-ant-test-super-secret-key-999" not in result.output
+
+def test_cli_setup_show_decrypt_failed(tmp_path, monkeypatch):
+    monkeypatch.setenv("JUUUDGE_DIR", str(tmp_path))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    db = Database(tmp_path / "juuudge.db")
+    db.init_schema()
+    # Inject an invalid/corrupted encrypted blob directly in DB
+    db.set_setting("provider", "anthropic")
+    db.set_setting("model", "claude-3-7-sonnet-20250219")
+    db.set_setting("anthropic_api_key", "enc_v1:00112233445566778899aabbccddeeff:0102030405060708090a")
+    db.set_setting("setup_completed", "true")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["setup", "--show"])
+    assert result.exit_code == 0
+    assert "<encrypted, decrypt failed>" in result.output
+    # Must be printable and clean
+    assert all(ord(c) >= 32 or c in "\n\r\t" for c in result.output)
+
+def test_cli_setup_show_rich_escaping(tmp_path, monkeypatch):
+    monkeypatch.setenv("JUUUDGE_DIR", str(tmp_path))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    # Provider with brackets or markup-like content
+    db = Database(tmp_path / "juuudge.db")
+    db.init_schema()
+    db.set_setting("provider", "anthropic")
+    db.set_setting("model", "custom[bracket]model")
+    db.set_setting("setup_completed", "true")
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["setup", "--show"])
+    assert result.exit_code == 0
+    assert "custom[bracket]model" in result.output
+    assert all(ord(c) >= 32 or c in "\n\r\t" for c in result.output)
 
 def test_cli_setup_show_ollama(tmp_path, monkeypatch):
     monkeypatch.setenv("JUUUDGE_DIR", str(tmp_path))
