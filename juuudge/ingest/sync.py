@@ -1,6 +1,7 @@
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, List, Dict, Any
 import json
+import gzip
 import httpx
 from juuudge.storage.db import Database
 from juuudge.storage.vector import VectorStore
@@ -27,6 +28,44 @@ async def download_file(url: str, on_progress: Optional[Callable[[str], None]] =
         resp = await client.get(url)
         resp.raise_for_status()
         return resp.content
+
+def parse_downloaded_data(data_bytes: bytes) -> List[Dict[str, Any]]:
+    """Parse downloaded bytes that may be gzipped, JSON array, or JSON Lines (jsonl)."""
+    if data_bytes.startswith(b"\x1f\x8b"):
+        data_bytes = gzip.decompress(data_bytes)
+
+    text = data_bytes.decode("utf-8", errors="ignore").strip()
+    if not text:
+        return []
+
+    # Try parsing as standard JSON array or object
+    if text.startswith("["):
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+    elif text.startswith("{"):
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict) and "data" in parsed and isinstance(parsed["data"], list):
+                return parsed["data"]
+            elif isinstance(parsed, dict) and not text.count("\n"):
+                return [parsed]
+        except json.JSONDecodeError:
+            pass
+
+    # Try parsing as JSON Lines (jsonl: one JSON object per line)
+    records: List[Dict[str, Any]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if line:
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return records
 
 async def sync_all_data(
     db: Database,
@@ -57,26 +96,49 @@ async def sync_all_data(
         on_progress("Fetching Scryfall bulk cards export metadata...")
     bulk_meta_bytes = await download_file(SCRYFALL_BULK_API_URL)
     bulk_meta = json.loads(bulk_meta_bytes)
-    default_cards_url = next(
-        item["download_uri"] for item in bulk_meta["data"] if item["type"] == "default_cards"
+    bulk_data_list = bulk_meta.get("data", []) if isinstance(bulk_meta, dict) else []
+
+    # Resolve card export URL (prefer default_cards, fallback to oracle_cards or all_cards)
+    cards_entry = next(
+        (item for item in bulk_data_list if item.get("type") == "default_cards"),
+        next(
+            (item for item in bulk_data_list if item.get("type") == "oracle_cards"),
+            next(
+                (item for item in bulk_data_list if item.get("type") == "all_cards"),
+                None
+            )
+        )
     )
-    rulings_url = next(
-        (item["download_uri"] for item in bulk_meta["data"] if item["type"] == "rulings"), None
+    if not cards_entry:
+        raise ValueError("No valid card export found in Scryfall bulk metadata")
+
+    cards_url = cards_entry.get("download_uri") or cards_entry.get("jsonl_download_uri") or cards_entry.get("uri")
+    if not cards_url:
+        raise ValueError(f"No download URL found for card export: {cards_entry}")
+
+    # Resolve rulings export URL
+    rulings_entry = next(
+        (item for item in bulk_data_list if item.get("type") == "rulings"),
+        None
+    )
+    rulings_url = (
+        rulings_entry.get("download_uri") or rulings_entry.get("jsonl_download_uri") or rulings_entry.get("uri")
+        if rulings_entry else None
     )
 
     if on_progress:
         on_progress("Downloading Scryfall bulk cards data...")
-    cards_bytes = await download_file(default_cards_url)
+    cards_bytes = await download_file(cards_url, on_progress)
     (cache_dir / CARDS_FILENAME).write_bytes(cards_bytes)
-    cards_data = json.loads(cards_bytes)
+    cards_data = parse_downloaded_data(cards_bytes)
 
     rulings_data = []
     if rulings_url:
         if on_progress:
             on_progress("Downloading Scryfall Gatherer rulings data...")
-        rulings_bytes = await download_file(rulings_url)
+        rulings_bytes = await download_file(rulings_url, on_progress)
         (cache_dir / RULINGS_FILENAME).write_bytes(rulings_bytes)
-        rulings_data = json.loads(rulings_bytes)
+        rulings_data = parse_downloaded_data(rulings_bytes)
 
     if on_progress:
         on_progress("Indexing cards and rulings in local SQLite...")

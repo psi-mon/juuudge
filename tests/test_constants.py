@@ -3,7 +3,7 @@ from juuudge import constants
 
 def test_constants_defined_and_exported():
     assert constants.WOTC_CR_URL.startswith("https://")
-    assert "MagicCompRules.txt" in constants.WOTC_CR_URL
+    assert "MagicCompRules" in constants.WOTC_CR_URL
     assert constants.SCRYFALL_BULK_API_URL == "https://api.scryfall.com/bulk-data"
     assert constants.SCRYFALL_SEARCH_URL_BASE.startswith("https://scryfall.com/search")
     assert constants.YAWGATOG_RULES_URL_BASE.startswith("https://yawgatog.com/resources/magic-rules/")

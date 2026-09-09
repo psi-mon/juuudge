@@ -3,7 +3,8 @@
 # ==============================================================================
 # Network & URLs
 # ==============================================================================
-WOTC_CR_URL = "https://media.wizards.com/2024/downloads/MagicCompRules.txt"
+# NOTE: The WOTC CR URL is the latest version of the Comprehensive Rules - need to be updated periodically
+WOTC_CR_URL = "https://media.wizards.com/2026/downloads/MagicCompRules%2020260819.txt"
 SCRYFALL_BULK_API_URL = "https://api.scryfall.com/bulk-data"
 SCRYFALL_SEARCH_URL_BASE = "https://scryfall.com/search?q="
 YAWGATOG_RULES_URL_BASE = "https://yawgatog.com/resources/magic-rules/#R"
