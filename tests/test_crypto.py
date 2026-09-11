@@ -35,3 +35,31 @@ def test_mask_secret():
     assert mask_secret("sk-ant-test-super-secret-key-999") == "sk-ant-…-999"
     assert mask_secret("custom-secret-value-1234") == "cus…1234"
     assert mask_secret("abc") == "…bc"
+
+def test_master_key_file_creation_and_permissions(tmp_path, monkeypatch):
+    import stat
+    monkeypatch.setenv("JUUUDGE_DIR", str(tmp_path))
+    secret = "sk-ant-test-key-file"
+    encrypted = encrypt_secret(secret)
+    assert encrypted.startswith("enc_v1:")
+
+    key_file = tmp_path / "master.key"
+    assert key_file.exists()
+    assert len(key_file.read_bytes()) == 32
+    # Check permissions 0600 (owner read/write only)
+    mode = stat.S_IMODE(key_file.stat().st_mode)
+    assert mode == 0o600
+
+def test_encryption_survives_platform_node_change(tmp_path, monkeypatch):
+    import platform
+    monkeypatch.setenv("JUUUDGE_DIR", str(tmp_path))
+    monkeypatch.setattr(platform, "node", lambda: "original-machine-host.local")
+
+    secret = "sk-ant-test-key-survives-node-change"
+    encrypted = encrypt_secret(secret)
+
+    # Change hostname (simulating DHCP, VPN, macOS Bonjour change across restarts)
+    monkeypatch.setattr(platform, "node", lambda: "different-machine-host-after-reboot.local")
+
+    decrypted = decrypt_secret(encrypted)
+    assert decrypted == secret

@@ -56,3 +56,19 @@ def test_validate_provider_setup():
     cfg3 = Config(llm=LLMConfig(provider="ollama", ollama_host="http://localhost:11434", model="llama3.3"))
     valid, msg = validate_provider_setup(cfg3)
     assert valid
+
+def test_validate_provider_setup_decrypt_failed(tmp_path, monkeypatch):
+    from juuudge.config import validate_provider_setup, Config, LLMConfig
+    from juuudge.storage.db import Database
+
+    monkeypatch.setenv("JUUUDGE_DIR", str(tmp_path))
+    db = Database(tmp_path / "juuudge.db")
+    db.init_schema()
+    # Store an encrypted blob in DB, but decrypted in-memory key is empty (simulating decrypt failure)
+    db.set_setting("anthropic_api_key", "enc_v1:0123456789abcdef:fedcba9876543210")
+
+    cfg = Config(llm=LLMConfig(provider="anthropic", api_key=""))
+    valid, msg = validate_provider_setup(cfg, db=db)
+    assert not valid
+    assert "decryption failed" in msg.lower()
+    assert "re-enter" in msg.lower()

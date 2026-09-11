@@ -92,7 +92,7 @@ class JuuudgeApp(App):
         event.input.value = ""
 
         # Validate provider setup before attempting agent call
-        valid, error_msg = validate_provider_setup(self.cfg)
+        valid, error_msg = validate_provider_setup(self.cfg, db=self.db)
         if not valid:
             chat = self.query_one("#chat-content", Static)
             self.chat_history.append(

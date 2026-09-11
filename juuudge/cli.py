@@ -120,7 +120,7 @@ def ask(question: str):
         db.init_schema()
         cfg = get_config(db)
 
-        valid, error_msg = validate_provider_setup(cfg)
+        valid, error_msg = validate_provider_setup(cfg, db=db)
         if not valid:
             console.print(f"[bold red]Error:[/bold red] {error_msg}")
             return

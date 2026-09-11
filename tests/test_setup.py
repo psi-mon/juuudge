@@ -169,3 +169,32 @@ def test_cli_setup_show_ollama(tmp_path, monkeypatch):
     assert "ollama" in result.output
     assert "http://127.0.0.1:11434" in result.output
     assert "llama3.3" in result.output
+
+def test_persistence_across_sessions_with_hostname_change(tmp_path, monkeypatch):
+    import platform
+    from juuudge.config import validate_provider_setup
+    monkeypatch.setenv("JUUUDGE_DIR", str(tmp_path))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(platform, "node", lambda: "host-session-1-mbp.local")
+
+    # Session 1: configure provider in DB
+    db1 = Database(tmp_path / "juuudge.db")
+    db1.init_schema()
+    db1.save_provider_config(
+        provider="anthropic",
+        api_key="sk-ant-persistent-key-9999",
+        model="claude-3-7-sonnet-20250219"
+    )
+
+    # Session 2: simulate restart where hostname changes (DHCP/Bonjour)
+    monkeypatch.setattr(platform, "node", lambda: "host-session-2-changed.local")
+
+    db2 = Database(tmp_path / "juuudge.db")
+    db2.init_schema()
+    cfg2 = get_config(db2)
+
+    valid, msg = validate_provider_setup(cfg2, db=db2)
+    assert valid is True
+    assert msg == ""
+    assert cfg2.llm.api_key == "sk-ant-persistent-key-9999"
+    assert cfg2.llm.provider == "anthropic"

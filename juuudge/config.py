@@ -81,7 +81,7 @@ def get_config(db: Optional[object] = None) -> Config:
     # 2. Load from DB settings if available
     if db is not None and hasattr(db, "get_provider_config"):
         p_cfg = db.get_provider_config()
-        if p_cfg.get("setup_completed"):
+        if p_cfg.get("setup_completed") or p_cfg.get("api_key"):
             cfg.setup_completed = True
             if p_cfg.get("provider"):
                 cfg.llm.provider = p_cfg["provider"]
@@ -98,7 +98,7 @@ def get_config(db: Optional[object] = None) -> Config:
             try:
                 local_db = Database(db_path)
                 p_cfg = local_db.get_provider_config()
-                if p_cfg.get("setup_completed"):
+                if p_cfg.get("setup_completed") or p_cfg.get("api_key"):
                     cfg.setup_completed = True
                     if p_cfg.get("provider"):
                         cfg.llm.provider = p_cfg["provider"]
@@ -119,11 +119,31 @@ def get_config(db: Optional[object] = None) -> Config:
 
     return cfg
 
-def validate_provider_setup(cfg: Config) -> Tuple[bool, str]:
+def validate_provider_setup(cfg: Config, db: Optional[object] = None) -> Tuple[bool, str]:
     """Validate whether LLM provider is properly configured before running agent."""
     provider = (cfg.llm.provider or "").lower()
     if provider == "anthropic":
         if not cfg.llm.api_key or not cfg.llm.api_key.strip():
+            raw_key = ""
+            if db is not None and hasattr(db, "get_setting"):
+                raw_key = db.get_setting("anthropic_api_key", "") or ""
+            elif db is None:
+                app_dir = get_app_dir()
+                db_path = app_dir / DEFAULT_DB_FILENAME
+                if db_path.exists():
+                    try:
+                        from juuudge.storage.db import Database
+                        local_db = Database(db_path)
+                        raw_key = local_db.get_setting("anthropic_api_key", "") or ""
+                    except Exception:
+                        pass
+
+            if raw_key and raw_key.startswith("enc_v1:"):
+                return (
+                    False,
+                    "Anthropic API key decryption failed. Please re-enter your API key by running 'juuudge setup' (or Ctrl+S in the TUI)."
+                )
+
             return (
                 False,
                 "No Anthropic API key configured. Please run 'juuudge setup' (or Ctrl+S in the TUI) to configure your provider."
