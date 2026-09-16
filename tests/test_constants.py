@@ -19,8 +19,4 @@ def test_constants_defined_and_exported():
     assert constants.DEFAULT_CONFIG_FILENAME == "config.toml"
     assert isinstance(constants.COMMON_STOPWORDS, set)
     assert len(constants.COMMON_STOPWORDS) > 0
-    assert len(constants.JUDGE_TOOLS_SCHEMA) == 4
-    assert "lookup_card" in [t["name"] for t in constants.JUDGE_TOOLS_SCHEMA]
-    assert "lookup_rule" in [t["name"] for t in constants.JUDGE_TOOLS_SCHEMA]
-    assert "lookup_glossary" in [t["name"] for t in constants.JUDGE_TOOLS_SCHEMA]
-    assert "search_rules" in [t["name"] for t in constants.JUDGE_TOOLS_SCHEMA]
+    assert not hasattr(constants, "JUDGE_TOOLS_SCHEMA")

@@ -2,7 +2,7 @@ from typing import Dict, Any, List
 import json
 from juuudge.storage.db import Database
 from juuudge.storage.vector import VectorStore
-from juuudge.constants import JUDGE_TOOLS_SCHEMA
+from juuudge.agent.tool_schemas import JUDGE_TOOLS_SCHEMA
 
 def create_judge_tools() -> List[Dict[str, Any]]:
     return JUDGE_TOOLS_SCHEMA

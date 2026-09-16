@@ -70,7 +70,7 @@ COMMON_STOPWORDS = {
 }
 
 # ==============================================================================
-# Agent Prompt & Tool Schemas
+# Agent Prompt
 # ==============================================================================
 JUDGE_SYSTEM_PROMPT = """You are juuudge, an elite certified Level 3 Magic: The Gathering Rules Judge.
 Your mission is to provide 100% accurate, authoritative, and crystal-clear rulings on MTG mechanics, priority, stack resolution, continuous effects (layers), replacement effects, and state-based actions.
@@ -84,53 +84,6 @@ RULES OF ENGAGEMENT:
 3. Whenever citing a Comprehensive Rule, link it using Yawgatog anchor: `[CR 613.1d](https://yawgatog.com/resources/magic-rules/#R6131d)`.
 4. If crucial card text, rule details, or glossary terms are missing from the injected context, use your available tools to look them up before issuing the verdict.
 """
-
-JUDGE_TOOLS_SCHEMA = [
-    {
-        "name": "lookup_card",
-        "description": "Look up official Scryfall Oracle text, mana cost, card types, and Gatherer rulings for an MTG card.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string", "description": "The exact or partial name of the card"}
-            },
-            "required": ["name"]
-        }
-    },
-    {
-        "name": "lookup_rule",
-        "description": "Look up the exact text and hierarchical context for an MTG Comprehensive Rule by rule ID (e.g. '613.1d', '704.5s').",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "rule_id": {"type": "string", "description": "Rule number like '613.1d' or '704.5'"}
-            },
-            "required": ["rule_id"]
-        }
-    },
-    {
-        "name": "lookup_glossary",
-        "description": "Look up official MTG legal definition for a game mechanic term (e.g. 'Priority', 'Active Player', 'Replacement Effect').",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "term": {"type": "string", "description": "The game term to look up"}
-            },
-            "required": ["term"]
-        }
-    },
-    {
-        "name": "search_rules",
-        "description": "Search the MTG Comprehensive Rules using keyword or semantic search.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Search query keywords"}
-            },
-            "required": ["query"]
-        }
-    }
-]
 
 # ==============================================================================
 # TUI Styles & Layout
