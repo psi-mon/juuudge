@@ -3,6 +3,7 @@ from typing import List, Dict, Any
 import lancedb
 from fastembed import TextEmbedding
 from juuudge.models import Rule, GlossaryTerm
+from juuudge.logger import get_logger
 from juuudge.constants import (
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_RULES_VEC_TABLE,
@@ -11,12 +12,15 @@ from juuudge.constants import (
     DEFAULT_TOP_K_GLOSSARY,
 )
 
+logger = get_logger("vector")
+
 class VectorStore:
     def __init__(self, db_dir: Path, model_name: str = DEFAULT_EMBEDDING_MODEL):
         self.db_dir = db_dir
         self.db_dir.mkdir(parents=True, exist_ok=True)
         self.db = lancedb.connect(str(self.db_dir))
         self._embedder = TextEmbedding(model_name=model_name)
+        logger.debug(f"VectorStore connected at {self.db_dir} using model {model_name}")
 
     def _embed(self, texts: List[str]) -> List[List[float]]:
         return [e.tolist() for e in self._embedder.embed(texts)]
@@ -30,6 +34,7 @@ class VectorStore:
     def index_rules(self, rules: List[Rule]):
         if not rules:
             return
+        logger.info(f"VectorStore indexing {len(rules)} CR rules")
         # Create contextualized text for dense embedding
         texts = [
             f"[{r.chapter} > {r.section} > {r.rule_id}] {r.text}"
@@ -73,17 +78,21 @@ class VectorStore:
     def search_rules(self, query: str, top_k: int = DEFAULT_TOP_K_RULES) -> List[Dict[str, Any]]:
         table_name = DEFAULT_RULES_VEC_TABLE
         if table_name not in self._get_tables():
+            logger.warning(f"Vector search rules table '{table_name}' does not exist")
             return []
         tbl = self.db.open_table(table_name)
         query_vec = self._embed([query])[0]
         results = tbl.search(query_vec).limit(top_k).to_list()
+        logger.debug(f"Vector rules search for '{query}' returned {len(results)} matches")
         return results
 
     def search_glossary(self, query: str, top_k: int = DEFAULT_TOP_K_GLOSSARY) -> List[Dict[str, Any]]:
         table_name = DEFAULT_GLOSSARY_VEC_TABLE
         if table_name not in self._get_tables():
+            logger.warning(f"Vector search glossary table '{table_name}' does not exist")
             return []
         tbl = self.db.open_table(table_name)
         query_vec = self._embed([query])[0]
         results = tbl.search(query_vec).limit(top_k).to_list()
+        logger.debug(f"Vector glossary search for '{query}' returned {len(results)} matches")
         return results

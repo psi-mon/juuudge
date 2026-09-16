@@ -143,13 +143,26 @@ Screen {
 #main-container {
     height: 1fr;
 }
-#chat-pane {
+#left-pane {
     width: 60%;
+    height: 100%;
+}
+#chat-pane {
+    height: 70%;
     border-right: solid #29292E;
+    border-bottom: solid #29292E;
     padding: 1 2;
+}
+#log-pane {
+    height: 30%;
+    border-right: solid #29292E;
+    padding: 0 1;
+    overflow-y: auto;
+    background: #18181B;
 }
 #side-pane {
     width: 40%;
+    height: 100%;
 }
 #card-pane {
     height: 50%;

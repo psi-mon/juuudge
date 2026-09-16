@@ -10,9 +10,12 @@ from juuudge.storage.vector import VectorStore
 from juuudge.agent.providers.anthropic_provider import AnthropicProvider
 from juuudge.agent.providers.ollama_provider import OllamaProvider
 from juuudge.agent.judge_loop import JudgeAgent
-from juuudge.tui.widgets import HelpModal, SetupModal, CardInspectorWidget, RuleInspectorWidget
+from juuudge.tui.widgets import HelpModal, SetupModal, CardInspectorWidget, RuleInspectorWidget, LogInspectorWidget
 from juuudge.models import Card, Rule
+from juuudge.logger import get_logger
 from juuudge.constants import TUI_CSS, DEFAULT_DB_FILENAME, DEFAULT_LANCEDB_DIRNAME
+
+logger = get_logger("tui")
 
 class JuuudgeApp(App):
     CSS = TUI_CSS
@@ -39,6 +42,7 @@ class JuuudgeApp(App):
         self.chat_history: list[str] = []
         self.last_cards: list[Card] = []
         self.last_rules: list[Rule] = []
+        logger.info(f"Initialized JuuudgeApp (provider: {self.cfg.llm.provider}, model: {self.cfg.llm.model})")
 
     def _init_agent(self):
         if self.cfg.llm.provider == "ollama":
@@ -53,12 +57,15 @@ class JuuudgeApp(App):
         chat = self.query_one("#chat-content", Static)
         self.chat_history.append(f"\n\n[bold green]✓ Provider reconfigured:[/bold green] {self.cfg.llm.provider} ({self.cfg.llm.model})")
         chat.update("".join(self.chat_history))
+        logger.info(f"Provider reloaded: {self.cfg.llm.provider} ({self.cfg.llm.model})")
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Horizontal(id="main-container"):
-            with VerticalScroll(id="chat-pane"):
-                yield Static("# Welcome to juuudge - MTG Rules Judge CLI\nAsk any rules or card interaction question below.", id="chat-content")
+            with Vertical(id="left-pane"):
+                with VerticalScroll(id="chat-pane"):
+                    yield Static("# Welcome to juuudge - MTG Rules Judge CLI\nAsk any rules or card interaction question below.", id="chat-content")
+                yield LogInspectorWidget(id="log-pane")
             with Vertical(id="side-pane"):
                 yield CardInspectorWidget(id="card-pane")
                 yield RuleInspectorWidget(id="rule-pane")
@@ -66,12 +73,15 @@ class JuuudgeApp(App):
         yield Footer()
 
     def action_show_help(self):
+        logger.debug("TUI help modal opened")
         self.push_screen(HelpModal())
 
     def action_show_setup(self):
+        logger.info("TUI setup modal opened")
         self.push_screen(SetupModal(self.db, on_saved=self._reload_provider))
 
     def action_clear_chat(self):
+        logger.info("TUI chat history cleared")
         self.chat_history.clear()
         chat = self.query_one("#chat-content", Static)
         chat.update("Chat cleared.")
@@ -81,8 +91,10 @@ class JuuudgeApp(App):
 
     def action_open_link(self):
         if self.last_cards:
+            logger.info(f"Opening Scryfall link for card: {self.last_cards[0].name}")
             webbrowser.open(self.last_cards[0].scryfall_search_url)
         elif self.last_rules:
+            logger.info(f"Opening Yawgatog link for rule: {self.last_rules[0].rule_id}")
             webbrowser.open(self.last_rules[0].yawgatog_url)
 
     async def on_input_submitted(self, event: Input.Submitted):
@@ -90,10 +102,12 @@ class JuuudgeApp(App):
         if not query:
             return
         event.input.value = ""
+        logger.info(f"TUI question received: '{query}'")
 
         # Validate provider setup before attempting agent call
         valid, error_msg = validate_provider_setup(self.cfg, db=self.db)
         if not valid:
+            logger.warning(f"TUI provider validation failed: {error_msg}")
             chat = self.query_one("#chat-content", Static)
             self.chat_history.append(
                 f"\n\n**Player:** {query}\n\n"

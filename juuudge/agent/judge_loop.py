@@ -7,8 +7,10 @@ from juuudge.retrieval.rule_retriever import RuleRetriever
 from juuudge.agent.providers.base import LLMProvider
 from juuudge.agent.tools import create_judge_tools, execute_tool
 from juuudge.models import Card, Rule
+from juuudge.logger import get_logger
 from juuudge.constants import JUDGE_SYSTEM_PROMPT, DEFAULT_MAX_TOOL_ROUNDS
 
+logger = get_logger("agent")
 SYSTEM_PROMPT = JUDGE_SYSTEM_PROMPT
 
 class JudgeAgent:
@@ -27,9 +29,13 @@ class JudgeAgent:
         self.rule_retriever = RuleRetriever(db, vec_store)
 
     async def ask_stream(self, question: str) -> AsyncIterator[Dict[str, Any]]:
+        logger.info(f"Starting rules adjudication: '{question}'")
         # 1. Deterministic Pre-Retrieval
         cards = self.card_extractor.extract(question)
         grounded_context = self.rule_retriever.retrieve(question)
+
+        logger.debug(f"Pre-retrieved {len(cards)} card(s): {[c.name for c in cards]}")
+        logger.debug(f"Pre-retrieved {len(grounded_context.rules)} rule(s): {[r.rule_id for r in grounded_context.rules]}")
 
         # Emit initial cards and rules to UI
         yield {"type": "cards_found", "cards": cards}
@@ -63,6 +69,7 @@ class JudgeAgent:
 
         # Bounded Tool Loop (Max N rounds)
         for round_idx in range(self.max_rounds):
+            logger.debug(f"Adjudication round {round_idx + 1}/{self.max_rounds} started")
             tool_calls_to_execute = []
             
             async for chunk in self.provider.stream_completion(
@@ -76,15 +83,17 @@ class JudgeAgent:
                     tool_calls_to_execute.extend(chunk.tool_calls)
 
             if not tool_calls_to_execute:
-                # Finished without tool calls
+                logger.debug(f"Adjudication completed at round {round_idx + 1}")
                 break
 
             # Execute tool calls
             tool_use_blocks = []
             tool_result_blocks = []
             for tc in tool_calls_to_execute:
+                logger.info(f"Agent executing tool '{tc.name}' with args: {tc.arguments}")
                 yield {"type": "tool_call_start", "name": tc.name, "args": tc.arguments}
                 tool_result = execute_tool(tc.name, tc.arguments, self.db, self.vec_store)
+                logger.debug(f"Tool '{tc.name}' result length: {len(tool_result)} chars")
                 yield {"type": "tool_call_result", "name": tc.name, "result": tool_result}
 
                 tool_use_blocks.append({
@@ -102,4 +111,5 @@ class JudgeAgent:
             messages.append({"role": "assistant", "content": tool_use_blocks})
             messages.append({"role": "user", "content": tool_result_blocks})
 
+        logger.info("Adjudication finished")
         yield {"type": "done"}

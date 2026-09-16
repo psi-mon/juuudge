@@ -7,6 +7,7 @@ from juuudge.storage.db import Database
 from juuudge.storage.vector import VectorStore
 from juuudge.ingest.cr_parser import parse_comprehensive_rules
 from juuudge.ingest.card_parser import parse_scryfall_cards
+from juuudge.logger import get_logger
 from juuudge.constants import (
     WOTC_CR_URL,
     SCRYFALL_BULK_API_URL,
@@ -17,9 +18,11 @@ from juuudge.constants import (
     RULINGS_FILENAME,
 )
 
+logger = get_logger("sync")
 SCRYFALL_BULK_API = SCRYFALL_BULK_API_URL
 
 async def download_file(url: str, on_progress: Optional[Callable[[str], None]] = None) -> bytes:
+    logger.debug(f"Downloading from {url}")
     headers = {
         "User-Agent": USER_AGENT,
         "Accept": "application/json, text/plain, */*"
@@ -27,6 +30,7 @@ async def download_file(url: str, on_progress: Optional[Callable[[str], None]] =
     async with httpx.AsyncClient(timeout=HTTP_DEFAULT_TIMEOUT, follow_redirects=True, headers=headers) as client:
         resp = await client.get(url)
         resp.raise_for_status()
+        logger.debug(f"Downloaded {len(resp.content)} bytes from {url}")
         return resp.content
 
 def parse_downloaded_data(data_bytes: bytes) -> List[Dict[str, Any]]:
@@ -73,6 +77,7 @@ async def sync_all_data(
     cache_dir: Path,
     on_progress: Optional[Callable[[str], None]] = None
 ):
+    logger.info("Starting sync_all_data workflow")
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     if on_progress:
@@ -84,6 +89,7 @@ async def sync_all_data(
     if on_progress:
         on_progress("Parsing Comprehensive Rules & Glossary...")
     rules, glossary = parse_comprehensive_rules(cr_text)
+    logger.info(f"Parsed {len(rules)} rules and {len(glossary)} glossary terms from CR")
     db.insert_rules(rules)
     db.insert_glossary(glossary)
 
@@ -110,10 +116,12 @@ async def sync_all_data(
         )
     )
     if not cards_entry:
+        logger.error("No valid card export found in Scryfall bulk metadata")
         raise ValueError("No valid card export found in Scryfall bulk metadata")
 
     cards_url = cards_entry.get("download_uri") or cards_entry.get("jsonl_download_uri") or cards_entry.get("uri")
     if not cards_url:
+        logger.error(f"No download URL found for card export: {cards_entry}")
         raise ValueError(f"No download URL found for card export: {cards_entry}")
 
     # Resolve rulings export URL
@@ -131,6 +139,7 @@ async def sync_all_data(
     cards_bytes = await download_file(cards_url, on_progress)
     (cache_dir / CARDS_FILENAME).write_bytes(cards_bytes)
     cards_data = parse_downloaded_data(cards_bytes)
+    logger.info(f"Downloaded and parsed {len(cards_data)} card objects")
 
     rulings_data = []
     if rulings_url:
@@ -139,11 +148,14 @@ async def sync_all_data(
         rulings_bytes = await download_file(rulings_url, on_progress)
         (cache_dir / RULINGS_FILENAME).write_bytes(rulings_bytes)
         rulings_data = parse_downloaded_data(rulings_bytes)
+        logger.info(f"Downloaded and parsed {len(rulings_data)} rulings objects")
 
     if on_progress:
         on_progress("Indexing cards and rulings in local SQLite...")
     cards = parse_scryfall_cards(cards_data, rulings_data)
+    logger.info(f"Parsed {len(cards)} unique cards with associated rulings")
     db.insert_cards(cards)
 
     if on_progress:
         on_progress("Sync completed successfully!")
+    logger.info("sync_all_data finished successfully")

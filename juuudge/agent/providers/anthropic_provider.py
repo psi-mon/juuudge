@@ -3,12 +3,15 @@ import json
 import anthropic
 from juuudge.agent.providers.base import LLMProvider
 from juuudge.models import LLMChunk, ToolCallRequest
+from juuudge.logger import get_logger
 from juuudge.constants import (
     DEFAULT_ANTHROPIC_MODEL,
     DEFAULT_TEMPERATURE,
     DEFAULT_MAX_TOKENS,
     resolve_anthropic_model,
 )
+
+logger = get_logger("anthropic")
 
 class AnthropicProvider(LLMProvider):
     def __init__(
@@ -42,6 +45,7 @@ class AnthropicProvider(LLMProvider):
         system_prompt: str,
         tools: List[Dict[str, Any]] | None = None
     ) -> AsyncIterator[LLMChunk]:
+        logger.info(f"Connecting to Anthropic Messages stream (model: '{self.model}')")
         kwargs: Dict[str, Any] = {
             "model": self.model,
             "max_tokens": DEFAULT_MAX_TOKENS,
@@ -51,7 +55,11 @@ class AnthropicProvider(LLMProvider):
         if tools:
             kwargs["tools"] = tools
 
-        stream = await self.client.messages.create(**kwargs, stream=True)
+        try:
+            stream = await self.client.messages.create(**kwargs, stream=True)
+        except Exception as e:
+            logger.error(f"Anthropic API request error: {e}")
+            raise
         current_tool_id = ""
         current_tool_name = ""
         current_tool_input_json = ""

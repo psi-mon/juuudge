@@ -149,3 +149,54 @@ class RuleInspectorWidget(VerticalScroll):
 [Yawgatog Link]({rule.yawgatog_url})
 """)
         widget.update("\n\n---\n\n".join(rules_md))
+
+class LogInspectorWidget(Static):
+    """Widget displaying the 10 most recent application logs with severity styling."""
+
+    SEVERITY_STYLES = {
+        "LOG": "dim cyan",
+        "INFO": "bold green",
+        "WARN": "bold yellow",
+        "ERROR": "bold red",
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._current_text = ""
+
+    def on_mount(self):
+        from juuudge.logger import add_log_listener
+        self.refresh_logs()
+        add_log_listener(self._on_new_log)
+
+    def on_unmount(self):
+        from juuudge.logger import remove_log_listener
+        remove_log_listener(self._on_new_log)
+
+    def _on_new_log(self, entry):
+        try:
+            self.app.call_from_thread(self.refresh_logs)
+        except Exception:
+            self.refresh_logs()
+
+    def refresh_logs(self):
+        from juuudge.logger import get_recent_logs
+        logs = get_recent_logs()
+        if not logs:
+            self._current_text = "[dim]Live Logs (0/10) - System initialized[/dim]"
+            self.update(self._current_text)
+            return
+
+        formatted_lines = ["[bold white]── Live Logs (Latest 10) ──[/bold white]"]
+        for entry in logs:
+            style = self.SEVERITY_STYLES.get(entry.severity, "white")
+            time_str = entry.timestamp.split()[1] if " " in entry.timestamp else entry.timestamp
+            line = f"[dim]{time_str}[/dim] [{style}][{entry.severity}][/{style}] [dim]{entry.source}[/dim] {entry.message}"
+            formatted_lines.append(line)
+
+        self._current_text = "\n".join(formatted_lines)
+        self.update(self._current_text)
+
+    @property
+    def renderable(self) -> str:
+        return self._current_text

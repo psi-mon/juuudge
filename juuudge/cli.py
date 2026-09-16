@@ -12,6 +12,7 @@ from juuudge.ingest.sync import sync_all_data
 from juuudge.agent.providers.anthropic_provider import AnthropicProvider
 from juuudge.agent.providers.ollama_provider import OllamaProvider
 from juuudge.agent.judge_loop import JudgeAgent
+from juuudge.logger import get_logger
 from juuudge.constants import (
     DEFAULT_DB_FILENAME,
     DEFAULT_LANCEDB_DIRNAME,
@@ -22,12 +23,14 @@ from juuudge.constants import (
 )
 
 console = Console()
+logger = get_logger("cli")
 
 @click.group(invoke_without_command=True)
 @click.pass_context
 def main(ctx: click.Context):
     """juuudge - Magic: The Gathering Rules Judge CLI & TUI Agent."""
     if ctx.invoked_subcommand is None:
+        logger.info("Starting juuudge interactive TUI application")
         from juuudge.tui.app import JuuudgeApp
         app = JuuudgeApp()
         app.run()
@@ -40,6 +43,7 @@ def main(ctx: click.Context):
 @click.option("--show", is_flag=True, help="Display current provider configuration.")
 def setup(provider: Optional[str], api_key: Optional[str], model: Optional[str], host: Optional[str], show: bool = False):
     """Configure LLM provider and credentials for juuudge."""
+    logger.info(f"juuudge setup triggered (show={show}, provider={provider})")
     app_dir = get_app_dir()
     db = Database(app_dir / DEFAULT_DB_FILENAME)
     db.init_schema()
@@ -97,6 +101,7 @@ def setup(provider: Optional[str], api_key: Optional[str], model: Optional[str],
             model = click.prompt("Model name", default=DEFAULT_ANTHROPIC_MODEL)
         
         db.save_provider_config(provider="anthropic", api_key=api_key, model=model)
+        logger.info(f"Configured Anthropic provider with model: {model}")
         console.print("\n[bold green]✓ Anthropic provider configured successfully![/bold green]")
         console.print(f"[dim]API key encrypted and saved. Model: {model}[/dim]\n")
 
@@ -107,6 +112,7 @@ def setup(provider: Optional[str], api_key: Optional[str], model: Optional[str],
             model = click.prompt("Model name", default=DEFAULT_OLLAMA_MODEL)
 
         db.save_provider_config(provider="ollama", host=host, model=model)
+        logger.info(f"Configured Ollama provider with host: {host}, model: {model}")
         console.print("\n[bold green]✓ Ollama provider configured successfully![/bold green]")
         console.print(f"[dim]Host: {host} | Model: {model}[/dim]\n")
 
@@ -114,6 +120,7 @@ def setup(provider: Optional[str], api_key: Optional[str], model: Optional[str],
 @click.argument("question")
 def ask(question: str):
     """Ask a rules question directly from stdout."""
+    logger.info(f"CLI ask invoked: '{question}'")
     async def _run():
         app_dir = get_app_dir()
         db = Database(app_dir / DEFAULT_DB_FILENAME)
@@ -122,6 +129,7 @@ def ask(question: str):
 
         valid, error_msg = validate_provider_setup(cfg, db=db)
         if not valid:
+            logger.warning(f"CLI ask provider validation failed: {error_msg}")
             console.print(f"[bold red]Error:[/bold red] {error_msg}")
             return
 
@@ -141,6 +149,7 @@ def ask(question: str):
                 if event["type"] == "token":
                     tokens.append(event["text"])
             
+            logger.info("CLI ask adjudication complete")
             console.print(Markdown("".join(tokens)))
 
     asyncio.run(_run())
@@ -149,6 +158,7 @@ def ask(question: str):
 @click.argument("name")
 def card(name: str):
     """Look up card oracle text and Gatherer rulings."""
+    logger.info(f"CLI card lookup: '{name}'")
     app_dir = get_app_dir()
     db = Database(app_dir / DEFAULT_DB_FILENAME)
     db.init_schema()
@@ -157,8 +167,10 @@ def card(name: str):
         matches = db.search_cards(name, limit=1)
         c = matches[0] if matches else None
     if not c:
+        logger.warning(f"CLI card '{name}' not found")
         console.print(f"[red]Card '{name}' not found in local database. Run `juuudge sync` first.[/red]")
         return
+    logger.info(f"CLI card '{c.name}' found")
     rulings_str = "\n".join([f"* ({r['date']}) {r['text']}" for r in c.rulings])
     md = f"""# {c.name} {c.mana_cost}
 *{c.type_line}*
@@ -177,13 +189,16 @@ def card(name: str):
 @click.argument("rule_id")
 def rule(rule_id: str):
     """Look up an official MTG Comprehensive Rule by ID (e.g. 613.1d)."""
+    logger.info(f"CLI rule lookup: '{rule_id}'")
     app_dir = get_app_dir()
     db = Database(app_dir / DEFAULT_DB_FILENAME)
     db.init_schema()
     r = db.get_rule_by_id(rule_id)
     if not r:
+        logger.warning(f"CLI rule '{rule_id}' not found")
         console.print(f"[red]Rule '{rule_id}' not found. Run `juuudge sync` first.[/red]")
         return
+    logger.info(f"CLI rule '{r.rule_id}' found: {r.section}")
     examples_str = "\n".join([f"> _{ex}_" for ex in r.examples])
     md = f"""# CR {r.rule_id} ({r.section})
 {r.text}
@@ -198,6 +213,7 @@ def rule(rule_id: str):
 @click.option("--force", is_flag=True, help="Force re-download of all data.")
 def sync(force: bool):
     """Download and sync Scryfall cards and MTG Comprehensive Rules."""
+    logger.info(f"CLI sync initiated (force={force})")
     async def _run():
         app_dir = get_app_dir()
         db = Database(app_dir / DEFAULT_DB_FILENAME)
@@ -206,9 +222,11 @@ def sync(force: bool):
         
         with console.status("[bold green]Starting sync...") as status:
             def on_progress(msg: str):
+                logger.debug(f"Sync progress: {msg}")
                 status.update(f"[bold green]{msg}")
             
             await sync_all_data(db, vec_store, cache_dir=app_dir / DEFAULT_CACHE_DIRNAME, on_progress=on_progress)
+            logger.info("CLI sync finished successfully")
             console.print("[bold green]✓ Database sync complete![/bold green]")
 
     asyncio.run(_run())

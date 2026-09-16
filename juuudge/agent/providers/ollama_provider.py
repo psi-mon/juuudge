@@ -3,12 +3,15 @@ import json
 import httpx
 from juuudge.agent.providers.base import LLMProvider
 from juuudge.models import LLMChunk, ToolCallRequest
+from juuudge.logger import get_logger
 from juuudge.constants import (
     DEFAULT_OLLAMA_HOST,
     DEFAULT_OLLAMA_MODEL,
     DEFAULT_TEMPERATURE,
     OLLAMA_DEFAULT_TIMEOUT,
 )
+
+logger = get_logger("ollama")
 
 class OllamaProvider(LLMProvider):
     def __init__(
@@ -27,6 +30,7 @@ class OllamaProvider(LLMProvider):
         system_prompt: str,
         tools: List[Dict[str, Any]] | None = None
     ) -> AsyncIterator[LLMChunk]:
+        logger.info(f"Connecting to Ollama API at {self.host} (model: '{self.model}')")
         formatted_messages = [{"role": "system", "content": system_prompt}]
         for m in messages:
             role = m.get("role")

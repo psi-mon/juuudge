@@ -3,7 +3,10 @@ from typing import List, Set
 from rapidfuzz import process, fuzz
 from juuudge.storage.db import Database
 from juuudge.models import Card
+from juuudge.logger import get_logger
 from juuudge.constants import COMMON_STOPWORDS
+
+logger = get_logger("retrieval.card")
 
 BRACKET_PATTERN = re.compile(r'\[\[(.*?)\]\]')
 
@@ -17,6 +20,7 @@ class CardExtractor:
             # Sort by length descending so longer specific card names match before substrings
             names = self.db.get_all_card_names()
             self._all_names = sorted(names, key=len, reverse=True)
+            logger.debug(f"Loaded {len(self._all_names)} card names for entity extraction")
         return self._all_names
 
     def extract(self, text: str) -> List[Card]:

@@ -3,6 +3,9 @@ import json
 from pathlib import Path
 from typing import List, Optional
 from juuudge.models import Card, Rule, GlossaryTerm
+from juuudge.logger import get_logger
+
+logger = get_logger("db")
 
 class Database:
     def __init__(self, db_path: Path):
@@ -16,6 +19,7 @@ class Database:
         return self._conn
 
     def init_schema(self):
+        logger.debug(f"Initializing SQLite schema at {self.db_path}")
         conn = self.get_connection()
         with conn:
             # Cards Table & FTS5
